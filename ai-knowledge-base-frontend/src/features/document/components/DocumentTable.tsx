@@ -1,0 +1,171 @@
+import { useState } from 'react'
+import { Download, Trash2 } from 'lucide-react'
+import { format } from 'date-fns'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { documentApi } from '../api'
+import { useDeleteDocument, useDocuments } from '../hooks/useDocuments'
+import type { KbDocument, ParseStatus } from '@/types/document'
+
+interface DocumentTableProps {
+  kbId: number
+  canWrite: boolean
+}
+
+const statusMeta: Record<
+  ParseStatus,
+  { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }
+> = {
+  PENDING: { label: '待解析', variant: 'outline' },
+  PROCESSING: { label: '解析中', variant: 'secondary' },
+  DONE: { label: '已完成', variant: 'default' },
+  FAILED: { label: '失败', variant: 'destructive' },
+}
+
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+export function DocumentTable({ kbId, canWrite }: DocumentTableProps) {
+  const [page, setPage] = useState(1)
+  const size = 20
+  const { data, isLoading } = useDocuments(kbId, { page, size })
+  const remove = useDeleteDocument(kbId)
+  const [pendingDelete, setPendingDelete] = useState<KbDocument | null>(null)
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-10" />
+        <Skeleton className="h-10" />
+        <Skeleton className="h-10" />
+      </div>
+    )
+  }
+
+  const records = data?.records ?? []
+  const total = data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / size))
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-md border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40">
+            <tr className="text-left">
+              <th className="px-4 py-2 font-medium">文件名</th>
+              <th className="px-4 py-2 font-medium w-24">大小</th>
+              <th className="px-4 py-2 font-medium w-24">状态</th>
+              <th className="px-4 py-2 font-medium w-24">切片</th>
+              <th className="px-4 py-2 font-medium w-28">上传者</th>
+              <th className="px-4 py-2 font-medium w-44">上传时间</th>
+              <th className="px-4 py-2 font-medium w-28">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                  暂无文档，请上传
+                </td>
+              </tr>
+            ) : (
+              records.map((d) => {
+                const meta = statusMeta[d.parseStatus] ?? statusMeta.PENDING
+                return (
+                  <tr key={d.id} className="border-t">
+                    <td className="px-4 py-2 truncate max-w-xs" title={d.name}>
+                      {d.name}
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground">{formatSize(d.fileSize)}</td>
+                    <td className="px-4 py-2">
+                      <Badge variant={meta.variant} title={d.parseError ?? ''}>
+                        {meta.label}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground">{d.chunkCount ?? '-'}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{d.uploaderName ?? `#${d.uploaderId}`}</td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      {d.createTime ? format(new Date(d.createTime), 'yyyy-MM-dd HH:mm') : '-'}
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-1">
+                        <a
+                          href={documentApi.downloadUrl(kbId, d.id)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Button variant="ghost" size="icon-sm" aria-label="下载">
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </a>
+                        {canWrite && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="删除"
+                            onClick={() => setPendingDelete(d)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {total > size && (
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>共 {total} 条</span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              上一页
+            </Button>
+            <span>
+              {page} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(v) => !v && setPendingDelete(null)}
+        title="删除文档？"
+        description={`即将删除「${pendingDelete?.name}」，对应文件和切片将一并清理。`}
+        confirmText="删除"
+        destructive
+        loading={remove.isPending}
+        onConfirm={() => {
+          if (!pendingDelete) return
+          remove.mutate(pendingDelete.id, {
+            onSuccess: () => setPendingDelete(null),
+          })
+        }}
+      />
+    </div>
+  )
+}
