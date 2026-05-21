@@ -24,6 +24,9 @@ public interface DocumentService {
     /** 删除文档。EDITOR/OWNER。 */
     void delete(Long userId, Long docId);
 
+    /** 重新解析。EDITOR/OWNER。 */
+    KbDocumentVO reparse(Long userId, Long docId);
+
     /** 加载文件流，调用方关闭。同时返回文档实体用于响应头。 */
     DownloadResource download(Long userId, Long docId);
 

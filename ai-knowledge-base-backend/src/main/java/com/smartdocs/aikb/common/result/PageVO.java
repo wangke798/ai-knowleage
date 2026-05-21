@@ -13,9 +13,9 @@ import java.util.function.Function;
 public class PageVO<T> {
 
     private List<T> records;
-    private Long total;
-    private Long page;
-    private Long size;
+    private long total;
+    private long page;
+    private long size;
 
     public static <T> PageVO<T> of(IPage<T> page) {
         PageVO<T> vo = new PageVO<>();

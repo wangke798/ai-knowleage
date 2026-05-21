@@ -1,16 +1,16 @@
 import { useState } from 'react'
-import { Download, Trash2 } from 'lucide-react'
+import { Download, RefreshCw, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { documentApi } from '../api'
-import { useDeleteDocument, useDocuments } from '../hooks/useDocuments'
+import { useDeleteDocument, useDocuments, useReparseDocument } from '../hooks/useDocuments'
 import type { KbDocument, ParseStatus } from '@/types/document'
 
 interface DocumentTableProps {
-  kbId: number
+  kbId: string
   canWrite: boolean
 }
 
@@ -36,6 +36,7 @@ export function DocumentTable({ kbId, canWrite }: DocumentTableProps) {
   const size = 20
   const { data, isLoading } = useDocuments(kbId, { page, size })
   const remove = useDeleteDocument(kbId)
+  const reparse = useReparseDocument(kbId)
   const [pendingDelete, setPendingDelete] = useState<KbDocument | null>(null)
 
   if (isLoading) {
@@ -104,6 +105,18 @@ export function DocumentTable({ kbId, canWrite }: DocumentTableProps) {
                             <Download className="h-4 w-4" />
                           </Button>
                         </a>
+                        {canWrite && (d.parseStatus === 'FAILED' || d.parseStatus === 'DONE') && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="重新解析"
+                            title="重新解析"
+                            disabled={reparse.isPending}
+                            onClick={() => reparse.mutate(d.id)}
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                        )}
                         {canWrite && (
                           <Button
                             variant="ghost"

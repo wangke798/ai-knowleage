@@ -12,6 +12,7 @@ import { MemberTable } from '../components/MemberTable'
 import { MemberAddDialog } from '../components/MemberAddDialog'
 import { DocumentUploader } from '@/features/document/components/DocumentUploader'
 import { DocumentTable } from '@/features/document/components/DocumentTable'
+import { KbSearchPanel } from '../components/KbSearchPanel'
 import type { KbRole } from '@/types/kb'
 
 const roleLabel: Record<KbRole, string> = {
@@ -22,7 +23,7 @@ const roleLabel: Record<KbRole, string> = {
 
 export function KbDetailPage() {
   const { kbId } = useParams()
-  const id = Number(kbId)
+  const id = kbId
   const { data: kb, isLoading, isError, error } = useKnowledgeBase(id)
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
@@ -85,6 +86,7 @@ export function KbDetailPage() {
       <Tabs defaultValue="documents">
         <TabsList>
           <TabsTrigger value="documents">文档管理</TabsTrigger>
+          <TabsTrigger value="search">检索调试</TabsTrigger>
           <TabsTrigger value="members">成员管理</TabsTrigger>
           <TabsTrigger value="settings">基本设置</TabsTrigger>
         </TabsList>
@@ -101,6 +103,10 @@ export function KbDetailPage() {
             )}
             <DocumentTable kbId={kb.id} canWrite={canEdit} />
           </div>
+        </TabsContent>
+
+        <TabsContent value="search">
+          <KbSearchPanel kbId={kb.id} />
         </TabsContent>
 
         <TabsContent value="members">

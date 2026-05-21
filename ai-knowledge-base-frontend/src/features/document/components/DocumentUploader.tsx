@@ -6,7 +6,7 @@ import { useUploadDocument } from '../hooks/useDocuments'
 import type { Result } from '@/types/api'
 
 interface DocumentUploaderProps {
-  kbId: number
+  kbId: string
   disabled?: boolean
   /** 接受的扩展名，逗号分隔 */
   accept?: string

@@ -1,65 +1,68 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 
-interface SSEOptions {
+interface SSEEventOptions {
   url: string
   body: unknown
-  onMessage: (chunk: string) => void
+  /**
+   * 按事件名分发的处理器。事件名对应后端 SseEmitter.event().name(...) 的 `event:` 字段。
+   * `data` 为已解析过的 JSON（解析失败时为原字符串）。
+   */
+  onEvent: (name: string, data: unknown) => void
   onDone?: () => void
   onError?: (err: unknown) => void
   signal?: AbortSignal
 }
 
+function readAccessToken(): string {
+  try {
+    const raw = localStorage.getItem('auth-storage')
+    if (!raw) return ''
+    const parsed = JSON.parse(raw) as { state?: { accessToken?: string } }
+    return parsed?.state?.accessToken ?? ''
+  } catch {
+    return ''
+  }
+}
+
 /**
- * 封装 SSE 流式请求，攒 16ms 批量 flush setState，避免渲染抖动
+ * 通用 SSE 客户端：POST + Authorization 头，按事件名回调。
+ * 与原 streamChat 不同，这里把多种事件（conversation / citations / token / done / error）
+ * 全部透传给上层，由 UI 决定怎么处理。
  */
-export async function streamChat({ url, body, onMessage, onDone, onError, signal }: SSEOptions) {
-  let buffer = ''
-  let flushTimer: ReturnType<typeof setTimeout> | null = null
-
-  const flush = () => {
-    if (buffer) {
-      onMessage(buffer)
-      buffer = ''
-    }
-    flushTimer = null
-  }
-
-  const scheduleFlush = (chunk: string) => {
-    buffer += chunk
-    if (!flushTimer) {
-      flushTimer = setTimeout(flush, 16)
-    }
-  }
-
-  const token = (() => {
-    try {
-      const { accessToken } = JSON.parse(
-        localStorage.getItem('auth-storage') ?? '{}'
-      )?.state ?? {}
-      return accessToken ?? ''
-    } catch {
-      return ''
-    }
-  })()
-
+export async function streamSSE({ url, body, onEvent, onDone, onError, signal }: SSEEventOptions) {
+  const token = readAccessToken()
   await fetchEventSource(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: token ? `Bearer ${token}` : '',
+      Accept: 'text/event-stream',
     },
     body: JSON.stringify(body),
     signal,
-    onmessage(ev) {
-      if (ev.data === '[DONE]') {
-        flush()
-        onDone?.()
-      } else {
-        scheduleFlush(ev.data)
+    openWhenHidden: true,
+    async onopen(res) {
+      if (!res.ok) {
+        let msg = `SSE 连接失败 (${res.status})`
+        try {
+          const j = await res.json()
+          if (j && typeof j === 'object' && 'message' in j) msg = String((j as { message: string }).message)
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg)
       }
     },
+    onmessage(ev) {
+      const name = ev.event || 'message'
+      let payload: unknown = ev.data
+      if (ev.data && (ev.data.startsWith('{') || ev.data.startsWith('['))) {
+        try { payload = JSON.parse(ev.data) } catch { /* keep raw */ }
+      }
+      onEvent(name, payload)
+      if (name === 'done') onDone?.()
+    },
     onerror(err) {
-      flush()
       onError?.(err)
       throw err
     },

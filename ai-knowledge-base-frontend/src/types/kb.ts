@@ -1,10 +1,10 @@
 export type KbRole = 'OWNER' | 'EDITOR' | 'VIEWER'
 
 export interface KnowledgeBase {
-  id: number
+  id: string
   name: string
   description?: string
-  ownerId: number
+  ownerId: string
   ownerName?: string
   embeddingModel?: string
   status: number
@@ -15,9 +15,9 @@ export interface KnowledgeBase {
 }
 
 export interface KbMember {
-  id: number
-  kbId: number
-  userId: number
+  id: string
+  kbId: string
+  userId: string
   username?: string
   nickname?: string
   role: KbRole
@@ -30,6 +30,6 @@ export interface KbUpsertRequest {
 }
 
 export interface KbMemberAddRequest {
-  userId: number
+  userId: string
   role: KbRole
 }

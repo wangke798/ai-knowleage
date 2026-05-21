@@ -29,20 +29,20 @@ spring:
     baseline-on-migrate: true
     encoding: UTF-8
 
-  # Spring AI - OpenAI
+  # Spring AI - 通义百炼（OpenAI 兼容协议）
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY:sk-placeholder}
-      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      api-key: ${DASHSCOPE_API_KEY:sk-3a21afb9b6db485aab1051893fca1979}
+      base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
       chat:
         options:
-          model: gpt-4o-mini
+          model: qwen-plus
           temperature: 0.7
       embedding:
         options:
-          model: text-embedding-3-small
+          model: text-embedding-v3
 
-    # Ollama（本地模型，开发阶段优先使用）
+    # Ollama（备用，可不启动）
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
       chat:
@@ -57,5 +57,5 @@ spring:
       pgvector:
         index-type: HNSW
         distance-type: COSINE_DISTANCE
-        dimensions: 1024    # bge-m3 维度为 1024（生产用 text-embedding-3-small 时改回 1536）
+        dimensions: 1024    # text-embedding-v3 维度 1024
         initialize-schema: true

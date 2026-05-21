@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export interface UserInfo {
-  id: number
+  id: string
   username: string
   nickname: string
   avatar?: string

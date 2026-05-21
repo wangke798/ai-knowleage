@@ -9,14 +9,14 @@ export interface DocumentPageQuery {
 }
 
 export const documentApi = {
-  page: async (kbId: number, params: DocumentPageQuery = {}) => {
+  page: async (kbId: string, params: DocumentPageQuery = {}) => {
     const res = (await request.get(`/kb/${kbId}/documents`, { params })) as unknown as Result<
       PageResult<KbDocument>
     >
     return res.data
   },
 
-  detail: async (kbId: number, docId: number) => {
+  detail: async (kbId: string, docId: string) => {
     const res = (await request.get(`/kb/${kbId}/documents/${docId}`)) as unknown as Result<KbDocument>
     return res.data
   },
@@ -25,7 +25,7 @@ export const documentApi = {
    * 上传文件。onProgress 在 0~100 之间。
    */
   upload: async (
-    kbId: number,
+    kbId: string,
     file: File,
     onProgress?: (percent: number) => void,
   ) => {
@@ -42,9 +42,16 @@ export const documentApi = {
     return res.data
   },
 
-  remove: async (kbId: number, docId: number) => {
+  remove: async (kbId: string, docId: string) => {
     await request.delete(`/kb/${kbId}/documents/${docId}`)
   },
 
-  downloadUrl: (kbId: number, docId: number) => `/api/kb/${kbId}/documents/${docId}/download`,
+  reparse: async (kbId: string, docId: string) => {
+    const res = (await request.post(
+      `/kb/${kbId}/documents/${docId}/reparse`,
+    )) as unknown as Result<KbDocument>
+    return res.data
+  },
+
+  downloadUrl: (kbId: string, docId: string) => `/api/kb/${kbId}/documents/${docId}/download`,
 }

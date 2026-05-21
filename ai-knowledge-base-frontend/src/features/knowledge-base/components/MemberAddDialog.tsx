@@ -17,7 +17,7 @@ import type { KbRole } from '@/types/kb'
 interface MemberAddDialogProps {
   open: boolean
   onOpenChange: (v: boolean) => void
-  kbId: number
+  kbId: string
 }
 
 export function MemberAddDialog({ open, onOpenChange, kbId }: MemberAddDialogProps) {
@@ -36,13 +36,13 @@ export function MemberAddDialog({ open, onOpenChange, kbId }: MemberAddDialogPro
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const parsed = Number(userId.trim())
-    if (!Number.isInteger(parsed) || parsed <= 0) {
+    const trimmed = userId.trim()
+    if (!/^\d+$/.test(trimmed)) {
       setError('请输入有效的用户 ID')
       return
     }
     addMember.mutate(
-      { userId: parsed, role },
+      { userId: trimmed, role },
       {
         onSuccess: () => onOpenChange(false),
         onError: (err: unknown) => {

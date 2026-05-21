@@ -27,7 +27,7 @@ public class PgVectorConfig {
     @Bean
     public VectorStore vectorStore(
             @Qualifier("pgVectorJdbcTemplate") JdbcTemplate pgVectorJdbcTemplate,
-            @Qualifier("ollamaEmbeddingModel") EmbeddingModel embeddingModel) {
+            @Qualifier("openAiEmbeddingModel") EmbeddingModel embeddingModel) {
         return PgVectorStore.builder(pgVectorJdbcTemplate, embeddingModel)
                 .indexType(PgVectorStore.PgIndexType.HNSW)
                 .distanceType(PgVectorStore.PgDistanceType.COSINE_DISTANCE)

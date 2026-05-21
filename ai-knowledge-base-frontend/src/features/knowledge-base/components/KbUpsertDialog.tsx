@@ -39,7 +39,7 @@ export function KbUpsertDialog({ open, onOpenChange, initial }: KbUpsertDialogPr
   }, [open, initial])
 
   const createMutation = useCreateKb()
-  const updateMutation = useUpdateKb(initial?.id ?? 0)
+  const updateMutation = useUpdateKb(initial?.id ?? '')
   const mutation = isEdit ? updateMutation : createMutation
 
   const handleSubmit = (e: React.FormEvent) => {

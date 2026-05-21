@@ -1,15 +1,27 @@
 export interface Conversation {
-  id: number
-  kbId: number
+  id: string
+  kbId: string
+  kbName?: string
   title: string
   createTime: string
+  updateTime?: string
+}
+
+export interface Citation {
+  chunkId: string
+  docId: string
+  docName?: string
+  seq: number
+  snippet: string
+  score?: number
 }
 
 export interface ChatMessage {
-  id: number
-  conversationId: number
+  id: string
+  conversationId: string
   role: 'USER' | 'ASSISTANT'
   content: string
-  citationChunkIds?: number[]
+  citations?: Citation[]
+  tokenCount?: number
   createTime: string
 }

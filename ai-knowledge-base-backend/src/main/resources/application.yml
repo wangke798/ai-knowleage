@@ -84,3 +84,8 @@ app:
       - text/plain
       - text/markdown
       - text/html
+
+  # 文档解析与切片
+  parse:
+    chunk-size: 800           # 字符数
+    chunk-overlap: 100        # 相邻块重叠字符

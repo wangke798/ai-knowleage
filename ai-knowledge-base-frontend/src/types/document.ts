@@ -1,8 +1,8 @@
 export type ParseStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED'
 
 export interface KbDocument {
-  id: number
-  kbId: number
+  id: string
+  kbId: string
   name: string
   fileSize: number
   mimeType: string
@@ -11,7 +11,7 @@ export interface KbDocument {
   parseStatus: ParseStatus
   parseError?: string
   chunkCount?: number
-  uploaderId: number
+  uploaderId: string
   uploaderName?: string
   createTime: string
   updateTime: string

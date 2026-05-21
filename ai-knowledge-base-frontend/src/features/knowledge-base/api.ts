@@ -23,7 +23,7 @@ export const kbApi = {
     return res.data
   },
 
-  detail: async (kbId: number) => {
+  detail: async (kbId: string) => {
     const res = (await request.get(`/kb/${kbId}`)) as unknown as Result<KnowledgeBase>
     return res.data
   },
@@ -33,33 +33,52 @@ export const kbApi = {
     return res.data
   },
 
-  update: async (kbId: number, body: KbUpsertRequest) => {
+  update: async (kbId: string, body: KbUpsertRequest) => {
     const res = (await request.put(`/kb/${kbId}`, body)) as unknown as Result<KnowledgeBase>
     return res.data
   },
 
-  remove: async (kbId: number) => {
+  remove: async (kbId: string) => {
     await request.delete(`/kb/${kbId}`)
   },
 }
 
 export const kbMemberApi = {
-  list: async (kbId: number) => {
+  list: async (kbId: string) => {
     const res = (await request.get(`/kb/${kbId}/members`)) as unknown as Result<KbMember[]>
     return res.data
   },
 
-  add: async (kbId: number, body: KbMemberAddRequest) => {
+  add: async (kbId: string, body: KbMemberAddRequest) => {
     const res = (await request.post(`/kb/${kbId}/members`, body)) as unknown as Result<KbMember>
     return res.data
   },
 
-  updateRole: async (kbId: number, memberId: number, role: KbRole) => {
+  updateRole: async (kbId: string, memberId: string, role: KbRole) => {
     const res = (await request.put(`/kb/${kbId}/members/${memberId}`, { role })) as unknown as Result<KbMember>
     return res.data
   },
 
-  remove: async (kbId: number, memberId: number) => {
+  remove: async (kbId: string, memberId: string) => {
     await request.delete(`/kb/${kbId}/members/${memberId}`)
+  },
+}
+
+export interface KbSearchHit {
+  content: string
+  score: number
+  kbId: string
+  docId: string
+  chunkId: string
+  seq: number
+  docName?: string
+}
+
+export const kbSearchApi = {
+  search: async (kbId: string, q: string, topK = 5, threshold?: number) => {
+    const res = (await request.get(`/kb/${kbId}/search`, {
+      params: { q, topK, ...(threshold != null ? { threshold } : {}) },
+    })) as unknown as Result<KbSearchHit[]>
+    return res.data
   },
 }

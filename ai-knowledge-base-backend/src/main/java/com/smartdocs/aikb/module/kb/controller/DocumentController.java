@@ -62,6 +62,13 @@ public class DocumentController {
         return Result.success();
     }
 
+    @Operation(summary = "重新解析文档")
+    @PostMapping("/{docId}/reparse")
+    public Result<KbDocumentVO> reparse(@PathVariable Long kbId, @PathVariable Long docId) {
+        Long userId = CurrentUserHolder.requireUserId();
+        return Result.success(documentService.reparse(userId, docId));
+    }
+
     @Operation(summary = "下载文档原文件")
     @GetMapping("/{docId}/download")
     public ResponseEntity<InputStreamResource> download(@PathVariable Long kbId, @PathVariable Long docId) {

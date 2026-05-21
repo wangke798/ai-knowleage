@@ -12,7 +12,7 @@ import {
 import type { KbMember, KbRole } from '@/types/kb'
 
 interface MemberTableProps {
-  kbId: number
+  kbId: string
   canManage: boolean
   onAddClick?: () => void
 }

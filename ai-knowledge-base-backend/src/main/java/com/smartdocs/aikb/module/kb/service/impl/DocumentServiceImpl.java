@@ -8,9 +8,12 @@ import com.smartdocs.aikb.common.result.ResultCode;
 import com.smartdocs.aikb.config.UploadProperties;
 import com.smartdocs.aikb.module.kb.dto.KbDocumentVO;
 import com.smartdocs.aikb.module.kb.entity.KbDocument;
+import com.smartdocs.aikb.module.kb.entity.KbDocumentChunk;
 import com.smartdocs.aikb.module.kb.entity.KnowledgeBase;
+import com.smartdocs.aikb.module.kb.mapper.KbDocumentChunkMapper;
 import com.smartdocs.aikb.module.kb.mapper.KbDocumentMapper;
 import com.smartdocs.aikb.module.kb.mapper.KnowledgeBaseMapper;
+import com.smartdocs.aikb.module.kb.service.DocumentParseService;
 import com.smartdocs.aikb.module.kb.service.DocumentService;
 import com.smartdocs.aikb.module.kb.service.KnowledgeBaseService;
 import com.smartdocs.aikb.module.kb.storage.StorageService;
@@ -20,8 +23,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,10 +58,13 @@ public class DocumentServiceImpl implements DocumentService {
             KnowledgeBaseServiceImpl.ROLE_OWNER, KnowledgeBaseServiceImpl.ROLE_EDITOR);
 
     private final KbDocumentMapper documentMapper;
+    private final KbDocumentChunkMapper chunkMapper;
     private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final SysUserMapper sysUserMapper;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final DocumentParseService documentParseService;
     private final StorageService storageService;
+    private final VectorStore vectorStore;
     private final UploadProperties uploadProperties;
 
     @Override
@@ -120,7 +131,23 @@ public class DocumentServiceImpl implements DocumentService {
         entity.setUploaderId(userId);
         documentMapper.insert(entity);
 
+        // 触发异步解析：必须在事务提交后再投递，否则异步线程会读不到刚 insert 的记录
+        triggerParseAfterCommit(entity.getId());
+
         return toVO(entity, sysUserMapper.selectById(userId));
+    }
+
+    private void triggerParseAfterCommit(Long docId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    documentParseService.parseAsync(docId);
+                }
+            });
+        } else {
+            documentParseService.parseAsync(docId);
+        }
     }
 
     @Override
@@ -156,8 +183,36 @@ public class DocumentServiceImpl implements DocumentService {
         KbDocument doc = requireDoc(docId);
         requireWrite(userId, doc.getKbId());
         documentMapper.deleteById(docId);
+        // 级联物理删除切片
+        chunkMapper.delete(new LambdaQueryWrapper<KbDocumentChunk>().eq(KbDocumentChunk::getDocId, docId));
         // 物理删除文件（幂等）
         storageService.delete(doc.getStoragePath());
+        // 删除向量库中的向量
+        try {
+            Filter.Expression byDoc = new FilterExpressionBuilder()
+                    .eq("docId", doc.getId().toString()).build();
+            vectorStore.delete(byDoc);
+        } catch (Exception e) {
+            log.warn("[Document] vector delete failed docId={}: {}", docId, e.toString());
+        }
+    }
+
+    @Override
+    public KbDocumentVO reparse(Long userId, Long docId) {
+        KbDocument doc = requireDoc(docId);
+        requireWrite(userId, doc.getKbId());
+        // 立刻置 PENDING 以反馈给前端；实际状态机由 parseAsync 推进
+        KbDocument upd = new KbDocument();
+        upd.setId(docId);
+        upd.setParseStatus(STATUS_PENDING);
+        upd.setParseError(null);
+        upd.setChunkCount(null);
+        documentMapper.updateById(upd);
+        triggerParseAfterCommit(docId);
+        doc.setParseStatus(STATUS_PENDING);
+        doc.setParseError(null);
+        doc.setChunkCount(null);
+        return toVO(doc, sysUserMapper.selectById(doc.getUploaderId()));
     }
 
     @Override

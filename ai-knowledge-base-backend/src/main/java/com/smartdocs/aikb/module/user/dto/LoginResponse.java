@@ -14,7 +14,7 @@ public class LoginResponse {
     private String accessToken;
 
     @Schema(description = "Access Token 过期时间戳（毫秒）")
-    private Long accessTokenExpireAt;
+    private long accessTokenExpireAt;
 
     /**
      * Refresh Token：仅在响应体里返回一次，方便接口测试与 Web 端把它写入 HttpOnly Cookie。
@@ -22,7 +22,7 @@ public class LoginResponse {
      */
     private String refreshToken;
 
-    private Long refreshTokenExpireAt;
+    private long refreshTokenExpireAt;
 
     private UserInfoVO user;
 }
