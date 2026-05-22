@@ -2,7 +2,6 @@ package com.smartdocs.aikb.module.user.service.impl;
 
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.ResultCode;
-import com.smartdocs.aikb.common.util.IdGenerator;
 import com.smartdocs.aikb.module.user.entity.SysUser;
 import com.smartdocs.aikb.module.user.mapper.SysUserMapper;
 import com.smartdocs.aikb.module.user.service.AuthService;
@@ -18,7 +17,6 @@ import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,17 +46,12 @@ public class AuthServiceImpl implements AuthService {
         if (sysUserMapper.selectByUsername(username) != null) {
             throw new BusinessException(ResultCode.USER_ALREADY_EXISTS);
         }
-        LocalDateTime now = LocalDateTime.now();
         SysUser user = new SysUser();
-        user.setId(IdGenerator.nextId());
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(password));
         user.setNickname(StringUtils.hasText(nickname) ? nickname : username);
         user.setEmail(email);
         user.setStatus(1);
-        user.setCreateTime(now);
-        user.setUpdateTime(now);
-        user.setDeleted(0);
         sysUserMapper.insert(user);
         return toUserInfo(user);
     }
