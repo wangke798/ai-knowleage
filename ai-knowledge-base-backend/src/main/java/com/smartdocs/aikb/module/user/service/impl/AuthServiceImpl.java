@@ -2,10 +2,7 @@ package com.smartdocs.aikb.module.user.service.impl;
 
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.ResultCode;
-import com.smartdocs.aikb.module.user.dto.LoginRequest;
-import com.smartdocs.aikb.module.user.dto.LoginResponse;
-import com.smartdocs.aikb.module.user.dto.RegisterRequest;
-import com.smartdocs.aikb.module.user.dto.UserInfoVO;
+import com.smartdocs.aikb.common.util.IdGenerator;
 import com.smartdocs.aikb.module.user.entity.SysUser;
 import com.smartdocs.aikb.module.user.mapper.SysUserMapper;
 import com.smartdocs.aikb.module.user.service.AuthService;
@@ -21,7 +18,10 @@ import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -34,24 +34,41 @@ public class AuthServiceImpl implements AuthService {
     private final StringRedisTemplate redisTemplate;
 
     @Override
-    public UserInfoVO register(RegisterRequest request) {
-        if (sysUserMapper.selectByUsername(request.getUsername()) != null) {
+    public Map<String, Object> register(Map<String, Object> params) {
+        String username = (String) params.get("username");
+        String password = (String) params.get("password");
+        String nickname = (String) params.get("nickname");
+        String email    = (String) params.get("email");
+        if (!org.springframework.util.StringUtils.hasText(username)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "\u7528\u6237\u540d\u4e0d\u80fd\u4e3a\u7a7a");
+        }
+        if (!org.springframework.util.StringUtils.hasText(password)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "\u5bc6\u7801\u4e0d\u80fd\u4e3a\u7a7a");
+        }
+        if (sysUserMapper.selectByUsername(username) != null) {
             throw new BusinessException(ResultCode.USER_ALREADY_EXISTS);
         }
+        LocalDateTime now = LocalDateTime.now();
         SysUser user = new SysUser();
-        user.setUsername(request.getUsername());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setNickname(StringUtils.hasText(request.getNickname()) ? request.getNickname() : request.getUsername());
-        user.setEmail(request.getEmail());
+        user.setId(IdGenerator.nextId());
+        user.setUsername(username);
+        user.setPassword(passwordEncoder.encode(password));
+        user.setNickname(StringUtils.hasText(nickname) ? nickname : username);
+        user.setEmail(email);
         user.setStatus(1);
+        user.setCreateTime(now);
+        user.setUpdateTime(now);
+        user.setDeleted(0);
         sysUserMapper.insert(user);
         return toUserInfo(user);
     }
 
     @Override
-    public LoginResponse login(LoginRequest request) {
-        SysUser user = sysUserMapper.selectByUsername(request.getUsername());
-        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+    public Map<String, Object> login(Map<String, Object> params) {
+        String username = (String) params.get("username");
+        String password = (String) params.get("password");
+        SysUser user = sysUserMapper.selectByUsername(username);
+        if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
             throw new BusinessException(ResultCode.PASSWORD_INCORRECT, "用户名或密码错误");
         }
         if (user.getStatus() != null && user.getStatus() == 0) {
@@ -61,7 +78,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public LoginResponse refresh(String refreshToken) {
+    public Map<String, Object> refresh(String refreshToken) {
         if (!StringUtils.hasText(refreshToken)) {
             throw new BusinessException(ResultCode.REFRESH_TOKEN_INVALID);
         }
@@ -84,12 +101,12 @@ public class AuthServiceImpl implements AuthService {
         // 只换新 access，不轮换 refresh（避免实现重放检测的复杂度）
         JwtTokenProvider.TokenPayload access = jwtTokenProvider.issueAccess(user.getId(), user.getUsername());
 
-        LoginResponse resp = new LoginResponse();
-        resp.setAccessToken(access.token());
-        resp.setAccessTokenExpireAt(access.expireAtMillis());
-        resp.setRefreshToken(refreshToken);
-        resp.setRefreshTokenExpireAt(parsed.expireAtMillis());
-        resp.setUser(toUserInfo(user));
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("accessToken", access.token());
+        resp.put("accessTokenExpireAt", access.expireAtMillis());
+        resp.put("refreshToken", refreshToken);
+        resp.put("refreshTokenExpireAt", parsed.expireAtMillis());
+        resp.put("user", toUserInfo(user));
         return resp;
     }
 
@@ -100,7 +117,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public UserInfoVO me(Long userId) {
+    public Map<String, Object> me(Long userId) {
         SysUser user = sysUserMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);
@@ -110,17 +127,27 @@ public class AuthServiceImpl implements AuthService {
 
     // ------------------------- helpers -------------------------
 
-    private LoginResponse buildLoginResponse(SysUser user) {
+    private Map<String, Object> buildLoginResponse(SysUser user) {
         JwtTokenProvider.TokenPayload access = jwtTokenProvider.issueAccess(user.getId(), user.getUsername());
         JwtTokenProvider.TokenPayload refresh = jwtTokenProvider.issueRefresh(user.getId(), user.getUsername());
 
-        LoginResponse resp = new LoginResponse();
-        resp.setAccessToken(access.token());
-        resp.setAccessTokenExpireAt(access.expireAtMillis());
-        resp.setRefreshToken(refresh.token());
-        resp.setRefreshTokenExpireAt(refresh.expireAtMillis());
-        resp.setUser(toUserInfo(user));
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("accessToken", access.token());
+        resp.put("accessTokenExpireAt", access.expireAtMillis());
+        resp.put("refreshToken", refresh.token());
+        resp.put("refreshTokenExpireAt", refresh.expireAtMillis());
+        resp.put("user", toUserInfo(user));
         return resp;
+    }
+
+    private Map<String, Object> toUserInfo(SysUser user) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", user.getId());
+        m.put("username", user.getUsername());
+        m.put("nickname", StringUtils.hasText(user.getNickname()) ? user.getNickname() : user.getUsername());
+        m.put("email", user.getEmail());
+        m.put("status", user.getStatus());
+        return m;
     }
 
     private void blacklistIfPresent(String token) {
@@ -140,16 +167,5 @@ public class AuthServiceImpl implements AuthService {
         } catch (JwtException e) {
             log.debug("登出时遇到无效 Token，已忽略：{}", e.getMessage());
         }
-    }
-
-    private UserInfoVO toUserInfo(SysUser user) {
-        UserInfoVO vo = new UserInfoVO();
-        vo.setId(user.getId());
-        vo.setUsername(user.getUsername());
-        vo.setNickname(StringUtils.hasText(user.getNickname()) ? user.getNickname() : user.getUsername());
-        vo.setAvatar(user.getAvatar());
-        vo.setEmail(user.getEmail());
-        vo.setRoles(List.of("USER"));
-        return vo;
     }
 }

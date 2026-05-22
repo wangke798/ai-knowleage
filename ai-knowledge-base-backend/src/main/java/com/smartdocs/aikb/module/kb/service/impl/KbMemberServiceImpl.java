@@ -3,8 +3,6 @@ package com.smartdocs.aikb.module.kb.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.ResultCode;
-import com.smartdocs.aikb.module.kb.dto.KbMemberRequest;
-import com.smartdocs.aikb.module.kb.dto.KbMemberVO;
 import com.smartdocs.aikb.module.kb.entity.KbMember;
 import com.smartdocs.aikb.module.kb.mapper.KbMemberMapper;
 import com.smartdocs.aikb.module.kb.service.KbMemberService;
@@ -34,7 +32,7 @@ public class KbMemberServiceImpl implements KbMemberService {
     private static final Set<String> ALLOWED_ROLES = Set.of("OWNER", "EDITOR", "VIEWER");
 
     @Override
-    public List<KbMemberVO> list(Long currentUserId, Long kbId) {
+    public List<Map<String, Object>> list(Long currentUserId, Long kbId) {
         // 成员（含 OWNER）可查看；非成员拒绝
         if (knowledgeBaseService.resolveRole(currentUserId, kbId) == null) {
             throw new BusinessException(ResultCode.KB_NO_PERMISSION);
@@ -48,39 +46,41 @@ public class KbMemberServiceImpl implements KbMemberService {
                         members.stream().map(KbMember::getUserId).collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(SysUser::getId, u -> u));
 
-        return members.stream().map(m -> toVO(m, userMap.get(m.getUserId()))).toList();
+        return members.stream().map(m -> toMap(m, userMap.get(m.getUserId()))).toList();
     }
 
     @Override
     @Transactional
-    public KbMemberVO add(Long currentUserId, Long kbId, KbMemberRequest request) {
+    public Map<String, Object> add(Long currentUserId, Long kbId, Map<String, Object> params) {
         requireOwner(currentUserId, kbId);
-        validateRole(request.getRole());
+        String role = (String) params.get("role");
+        Long targetUserId = toLong(params.get("userId"));
+        validateRole(role);
 
-        SysUser user = sysUserMapper.selectById(request.getUserId());
+        SysUser user = sysUserMapper.selectById(targetUserId);
         if (user == null) {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
 
         Long exists = kbMemberMapper.selectCount(new LambdaQueryWrapper<KbMember>()
                 .eq(KbMember::getKbId, kbId)
-                .eq(KbMember::getUserId, request.getUserId()));
+                .eq(KbMember::getUserId, targetUserId));
         if (exists != null && exists > 0) {
             throw new BusinessException(ResultCode.KB_MEMBER_EXISTS);
         }
 
         KbMember member = new KbMember();
         member.setKbId(kbId);
-        member.setUserId(request.getUserId());
-        member.setRole(request.getRole());
+        member.setUserId(targetUserId);
+        member.setRole(role);
         kbMemberMapper.insert(member);
 
-        return toVO(member, user);
+        return toMap(member, user);
     }
 
     @Override
     @Transactional
-    public KbMemberVO updateRole(Long currentUserId, Long kbId, Long memberId, String role) {
+    public Map<String, Object> updateRole(Long currentUserId, Long kbId, Long memberId, String role) {
         requireOwner(currentUserId, kbId);
         validateRole(role);
 
@@ -94,7 +94,7 @@ public class KbMemberServiceImpl implements KbMemberService {
 
         member.setRole(role);
         kbMemberMapper.updateById(member);
-        return toVO(member, sysUserMapper.selectById(member.getUserId()));
+        return toMap(member, sysUserMapper.selectById(member.getUserId()));
     }
 
     @Override
@@ -127,20 +127,26 @@ public class KbMemberServiceImpl implements KbMemberService {
 
     private void validateRole(String role) {
         if (!ALLOWED_ROLES.contains(role)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "非法的角色：" + role);
+            throw new BusinessException(ResultCode.BAD_REQUEST, "\u975e\u6cd5\u7684\u89d2\u8272\uff1a" + role);
         }
     }
 
-    private KbMemberVO toVO(KbMember member, SysUser user) {
-        KbMemberVO vo = new KbMemberVO();
-        vo.setId(member.getId());
-        vo.setKbId(member.getKbId());
-        vo.setUserId(member.getUserId());
-        vo.setRole(member.getRole());
+    private Map<String, Object> toMap(KbMember member, SysUser user) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("id", member.getId());
+        m.put("kbId", member.getKbId());
+        m.put("userId", member.getUserId());
+        m.put("role", member.getRole());
         if (user != null) {
-            vo.setUsername(user.getUsername());
-            vo.setNickname(StringUtils.hasText(user.getNickname()) ? user.getNickname() : user.getUsername());
+            m.put("username", user.getUsername());
+            m.put("nickname", StringUtils.hasText(user.getNickname()) ? user.getNickname() : user.getUsername());
         }
-        return vo;
+        return m;
+    }
+
+    private static Long toLong(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.longValue();
+        try { return Long.parseLong(v.toString()); } catch (NumberFormatException e) { return null; }
     }
 }

@@ -6,7 +6,6 @@ import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.PageVO;
 import com.smartdocs.aikb.common.result.ResultCode;
 import com.smartdocs.aikb.config.UploadProperties;
-import com.smartdocs.aikb.module.kb.dto.KbDocumentVO;
 import com.smartdocs.aikb.module.kb.entity.KbDocument;
 import com.smartdocs.aikb.module.kb.entity.KbDocumentChunk;
 import com.smartdocs.aikb.module.kb.entity.KnowledgeBase;
@@ -36,6 +35,7 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,7 +69,7 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Override
     @Transactional
-    public KbDocumentVO upload(Long userId, Long kbId, MultipartFile file) {
+    public Map<String, Object> upload(Long userId, Long kbId, MultipartFile file) {
         requireWrite(userId, kbId);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "上传文件为空");
@@ -134,7 +134,7 @@ public class DocumentServiceImpl implements DocumentService {
         // 触发异步解析：必须在事务提交后再投递，否则异步线程会读不到刚 insert 的记录
         triggerParseAfterCommit(entity.getId());
 
-        return toVO(entity, sysUserMapper.selectById(userId));
+        return toMap(entity, sysUserMapper.selectById(userId));
     }
 
     private void triggerParseAfterCommit(Long docId) {
@@ -151,7 +151,7 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
-    public PageVO<KbDocumentVO> page(Long userId, Long kbId, long page, long size, String keyword) {
+    public PageVO<Map<String, Object>> page(Long userId, Long kbId, long page, long size, String keyword) {
         requireRead(userId, kbId);
         LambdaQueryWrapper<KbDocument> qw = new LambdaQueryWrapper<KbDocument>()
                 .eq(KbDocument::getKbId, kbId)
@@ -162,19 +162,19 @@ public class DocumentServiceImpl implements DocumentService {
         Page<KbDocument> result = documentMapper.selectPage(new Page<>(page, size), qw);
         List<KbDocument> records = result.getRecords();
         if (records.isEmpty()) {
-            return PageVO.map(result, d -> toVO(d, null));
+            return PageVO.map(result, d -> toMap(d, null));
         }
         Set<Long> uploaderIds = records.stream().map(KbDocument::getUploaderId).collect(Collectors.toSet());
         Map<Long, SysUser> userMap = sysUserMapper.selectBatchIds(uploaderIds).stream()
                 .collect(Collectors.toMap(SysUser::getId, Function.identity(), (a, b) -> a));
-        return PageVO.map(result, d -> toVO(d, userMap.get(d.getUploaderId())));
+        return PageVO.map(result, d -> toMap(d, userMap.get(d.getUploaderId())));
     }
 
     @Override
-    public KbDocumentVO detail(Long userId, Long docId) {
+    public Map<String, Object> detail(Long userId, Long docId) {
         KbDocument doc = requireDoc(docId);
         requireRead(userId, doc.getKbId());
-        return toVO(doc, sysUserMapper.selectById(doc.getUploaderId()));
+        return toMap(doc, sysUserMapper.selectById(doc.getUploaderId()));
     }
 
     @Override
@@ -198,7 +198,7 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
-    public KbDocumentVO reparse(Long userId, Long docId) {
+    public Map<String, Object> reparse(Long userId, Long docId) {
         KbDocument doc = requireDoc(docId);
         requireWrite(userId, doc.getKbId());
         // 立刻置 PENDING 以反馈给前端；实际状态机由 parseAsync 推进
@@ -212,7 +212,7 @@ public class DocumentServiceImpl implements DocumentService {
         doc.setParseStatus(STATUS_PENDING);
         doc.setParseError(null);
         doc.setChunkCount(null);
-        return toVO(doc, sysUserMapper.selectById(doc.getUploaderId()));
+        return toMap(doc, sysUserMapper.selectById(doc.getUploaderId()));
     }
 
     @Override
@@ -258,26 +258,26 @@ public class DocumentServiceImpl implements DocumentService {
         }
     }
 
-    private KbDocumentVO toVO(KbDocument doc, SysUser uploader) {
-        KbDocumentVO vo = new KbDocumentVO();
-        vo.setId(doc.getId());
-        vo.setKbId(doc.getKbId());
-        vo.setName(doc.getName());
-        vo.setFileSize(doc.getFileSize());
-        vo.setMimeType(doc.getMimeType());
-        vo.setFileHash(doc.getFileHash());
-        vo.setVersion(doc.getVersion());
-        vo.setParseStatus(doc.getParseStatus());
-        vo.setParseError(doc.getParseError());
-        vo.setChunkCount(doc.getChunkCount());
-        vo.setUploaderId(doc.getUploaderId());
+    private Map<String, Object> toMap(KbDocument doc, SysUser uploader) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", doc.getId());
+        m.put("kbId", doc.getKbId());
+        m.put("name", doc.getName());
+        m.put("fileSize", doc.getFileSize());
+        m.put("mimeType", doc.getMimeType());
+        m.put("fileHash", doc.getFileHash());
+        m.put("version", doc.getVersion());
+        m.put("parseStatus", doc.getParseStatus());
+        m.put("parseError", doc.getParseError());
+        m.put("chunkCount", doc.getChunkCount());
+        m.put("uploaderId", doc.getUploaderId());
         if (uploader != null) {
-            vo.setUploaderName(StringUtils.hasText(uploader.getNickname())
+            m.put("uploaderName", StringUtils.hasText(uploader.getNickname())
                     ? uploader.getNickname() : uploader.getUsername());
         }
-        vo.setCreateTime(doc.getCreateTime());
-        vo.setUpdateTime(doc.getUpdateTime());
-        return vo;
+        m.put("createTime", doc.getCreateTime());
+        m.put("updateTime", doc.getUpdateTime());
+        return m;
     }
 
     private static String sha256(byte[] bytes) {

@@ -3,10 +3,7 @@ package com.smartdocs.aikb.module.chat.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartdocs.aikb.common.util.CurrentUserHolder;
-import com.smartdocs.aikb.module.chat.dto.ChatStreamRequest;
-import com.smartdocs.aikb.module.chat.dto.CitationVO;
 import com.smartdocs.aikb.module.chat.service.RagChatService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -46,7 +43,7 @@ public class ChatStreamController {
     private final AsyncTaskExecutor applicationTaskExecutor;
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(@Valid @RequestBody ChatStreamRequest request) {
+    public SseEmitter stream(@RequestBody Map<String, Object> params) {
         Long userId = CurrentUserHolder.requireUserId();
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
 
@@ -57,14 +54,14 @@ public class ChatStreamController {
         });
         emitter.onError(t -> log.warn("[Chat SSE] connection error: {}", t.toString()));
 
-        applicationTaskExecutor.execute(() -> ragChatService.streamChat(userId, request, new RagChatService.StreamListener() {
+        applicationTaskExecutor.execute(() -> ragChatService.streamChat(userId, params, new RagChatService.StreamListener() {
             @Override public void onConversationReady(Long conversationId) {
                 send(emitter, "conversation", Map.of("id", conversationId));
             }
             @Override public void onUserMessageSaved(Long messageId) {
                 send(emitter, "user_message", Map.of("id", messageId));
             }
-            @Override public void onCitations(List<CitationVO> citations) {
+            @Override public void onCitations(List<Map<String, Object>> citations) {
                 send(emitter, "citations", citations);
             }
             @Override public void onToken(String token) {

@@ -5,10 +5,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.ResultCode;
-import com.smartdocs.aikb.module.chat.dto.ChatMessageVO;
-import com.smartdocs.aikb.module.chat.dto.CitationVO;
-import com.smartdocs.aikb.module.chat.dto.ConversationCreateRequest;
-import com.smartdocs.aikb.module.chat.dto.ConversationVO;
 import com.smartdocs.aikb.module.chat.entity.ChatConversation;
 import com.smartdocs.aikb.module.chat.entity.ChatMessage;
 import com.smartdocs.aikb.module.chat.mapper.ChatConversationMapper;
@@ -44,37 +40,42 @@ public class ConversationServiceImpl implements ConversationService {
     private final ObjectMapper objectMapper;
 
     @Override
-    public List<ConversationVO> listMine(Long userId) {
+    public List<Map<String, Object>> listMine(Long userId) {
         List<ChatConversation> rows = conversationMapper.selectList(
                 new LambdaQueryWrapper<ChatConversation>()
                         .eq(ChatConversation::getUserId, userId)
                         .orderByDesc(ChatConversation::getUpdateTime));
         if (rows.isEmpty()) return List.of();
         Map<Long, String> kbNames = loadKbNames(rows.stream().map(ChatConversation::getKbId).collect(Collectors.toSet()));
-        return rows.stream().map(c -> toVO(c, kbNames.get(c.getKbId()))).toList();
+        return rows.stream().map(c -> toMap(c, kbNames.get(c.getKbId()))).toList();
     }
 
     @Override
     @Transactional
-    public ConversationVO create(Long userId, ConversationCreateRequest request) {
-        if (knowledgeBaseService.resolveRole(userId, request.getKbId()) == null) {
+    public Map<String, Object> create(Long userId, Map<String, Object> params) {
+        Long kbId = toLong(params.get("kbId"));
+        String title = (String) params.get("title");
+        if (kbId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "kbId \u4e0d\u80fd\u4e3a\u7a7a");
+        }
+        if (knowledgeBaseService.resolveRole(userId, kbId) == null) {
             throw new BusinessException(ResultCode.KB_NO_PERMISSION);
         }
         ChatConversation c = new ChatConversation();
         c.setUserId(userId);
-        c.setKbId(request.getKbId());
-        c.setTitle(StringUtils.hasText(request.getTitle()) ? request.getTitle() : "新会话");
+        c.setKbId(kbId);
+        c.setTitle(StringUtils.hasText(title) ? title : "\u65b0\u4f1a\u8bdd");
         conversationMapper.insert(c);
-        return toVO(c, kbName(request.getKbId()));
+        return toMap(c, kbName(kbId));
     }
 
     @Override
     @Transactional
-    public ConversationVO rename(Long userId, Long conversationId, String title) {
+    public Map<String, Object> rename(Long userId, Long conversationId, String title) {
         ChatConversation c = requireOwn(userId, conversationId);
         c.setTitle(title);
         conversationMapper.updateById(c);
-        return toVO(c, kbName(c.getKbId()));
+        return toMap(c, kbName(c.getKbId()));
     }
 
     @Override
@@ -87,13 +88,13 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
-    public ConversationVO detail(Long userId, Long conversationId) {
+    public Map<String, Object> detail(Long userId, Long conversationId) {
         ChatConversation c = requireOwn(userId, conversationId);
-        return toVO(c, kbName(c.getKbId()));
+        return toMap(c, kbName(c.getKbId()));
     }
 
     @Override
-    public List<ChatMessageVO> listMessages(Long userId, Long conversationId) {
+    public List<Map<String, Object>> listMessages(Long userId, Long conversationId) {
         requireOwn(userId, conversationId);
         List<ChatMessage> rows = messageMapper.selectList(
                 new LambdaQueryWrapper<ChatMessage>()
@@ -108,20 +109,20 @@ public class ConversationServiceImpl implements ConversationService {
             idsPerMsg.put(m.getId(), ids);
             chunkIds.addAll(ids);
         }
-        Map<Long, CitationVO> citationMap = loadCitations(chunkIds);
+        Map<Long, Map<String, Object>> citationMap = loadCitations(chunkIds);
         return rows.stream().map(m -> {
-            ChatMessageVO vo = new ChatMessageVO();
-            vo.setId(m.getId());
-            vo.setConversationId(m.getConversationId());
-            vo.setRole(m.getRole());
-            vo.setContent(m.getContent());
-            vo.setTokenCount(m.getTokenCount());
-            vo.setCreateTime(m.getCreateTime());
+            Map<String, Object> msg = new LinkedHashMap<>();
+            msg.put("id", m.getId());
+            msg.put("conversationId", m.getConversationId());
+            msg.put("role", m.getRole());
+            msg.put("content", m.getContent());
+            msg.put("tokenCount", m.getTokenCount());
+            msg.put("createTime", m.getCreateTime());
             List<Long> ids = idsPerMsg.getOrDefault(m.getId(), List.of());
             if (!ids.isEmpty()) {
-                vo.setCitations(ids.stream().map(citationMap::get).filter(Objects::nonNull).toList());
+                msg.put("citations", ids.stream().map(citationMap::get).filter(Objects::nonNull).toList());
             }
-            return vo;
+            return msg;
         }).toList();
     }
 
@@ -139,8 +140,15 @@ public class ConversationServiceImpl implements ConversationService {
 
     // ─── helpers ───
 
-    private ConversationVO toVO(ChatConversation c, String kbName) {
-        return new ConversationVO(c.getId(), c.getKbId(), kbName, c.getTitle(), c.getCreateTime(), c.getUpdateTime());
+    private Map<String, Object> toMap(ChatConversation c, String kbName) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", c.getId());
+        m.put("kbId", c.getKbId());
+        m.put("kbName", kbName);
+        m.put("title", c.getTitle());
+        m.put("createTime", c.getCreateTime());
+        m.put("updateTime", c.getUpdateTime());
+        return m;
     }
 
     private String kbName(Long kbId) {
@@ -164,24 +172,30 @@ public class ConversationServiceImpl implements ConversationService {
         }
     }
 
-    private Map<Long, CitationVO> loadCitations(Set<Long> chunkIds) {
+    private Map<Long, Map<String, Object>> loadCitations(Set<Long> chunkIds) {
         if (chunkIds.isEmpty()) return Map.of();
         List<KbDocumentChunk> chunks = chunkMapper.selectBatchIds(chunkIds);
         if (chunks.isEmpty()) return Map.of();
         Set<Long> docIds = chunks.stream().map(KbDocumentChunk::getDocId).collect(Collectors.toSet());
         Map<Long, String> docNames = documentMapper.selectBatchIds(docIds).stream()
                 .collect(Collectors.toMap(KbDocument::getId, KbDocument::getName));
-        Map<Long, CitationVO> out = new HashMap<>();
+        Map<Long, Map<String, Object>> out = new HashMap<>();
         for (KbDocumentChunk c : chunks) {
-            CitationVO v = new CitationVO();
-            v.setChunkId(c.getId());
-            v.setDocId(c.getDocId());
-            v.setDocName(docNames.get(c.getDocId()));
-            v.setSeq(c.getSeq());
-            v.setSnippet(truncate(c.getContent(), 200));
-            out.put(c.getId(), v);
+            Map<String, Object> cit = new LinkedHashMap<>();
+            cit.put("chunkId", c.getId());
+            cit.put("docId", c.getDocId());
+            cit.put("docName", docNames.get(c.getDocId()));
+            cit.put("seq", c.getSeq());
+            cit.put("snippet", truncate(c.getContent(), 200));
+            out.put(c.getId(), cit);
         }
         return out;
+    }
+
+    private static Long toLong(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.longValue();
+        try { return Long.parseLong(v.toString()); } catch (NumberFormatException e) { return null; }
     }
 
     private static String truncate(String s, int max) {

@@ -5,8 +5,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.PageVO;
 import com.smartdocs.aikb.common.result.ResultCode;
-import com.smartdocs.aikb.module.kb.dto.KbUpsertRequest;
-import com.smartdocs.aikb.module.kb.dto.KbVO;
 import com.smartdocs.aikb.module.kb.entity.KbMember;
 import com.smartdocs.aikb.module.kb.entity.KnowledgeBase;
 import com.smartdocs.aikb.module.kb.mapper.KbMemberMapper;
@@ -21,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,19 +42,25 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     @Override
     @Transactional
-    public KbVO create(Long userId, KbUpsertRequest request) {
+    public Map<String, Object> create(Long userId, Map<String, Object> params) {
+        String name = (String) params.get("name");
+        String description = (String) params.get("description");
+        String embeddingModel = (String) params.get("embeddingModel");
+        if (!StringUtils.hasText(name)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "\u77e5\u8bc6\u5e93\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a");
+        }
         // 同一用户下名称去重
         Long duplicate = knowledgeBaseMapper.selectCount(new LambdaQueryWrapper<KnowledgeBase>()
                 .eq(KnowledgeBase::getOwnerId, userId)
-                .eq(KnowledgeBase::getName, request.getName()));
+                .eq(KnowledgeBase::getName, name));
         if (duplicate != null && duplicate > 0) {
             throw new BusinessException(ResultCode.KB_NAME_DUPLICATE);
         }
 
         KnowledgeBase entity = new KnowledgeBase();
-        entity.setName(request.getName());
-        entity.setDescription(request.getDescription());
-        entity.setEmbeddingModel(request.getEmbeddingModel());
+        entity.setName(name);
+        entity.setDescription(description);
+        entity.setEmbeddingModel(embeddingModel);
         entity.setOwnerId(userId);
         entity.setStatus(1);
         knowledgeBaseMapper.insert(entity);
@@ -67,35 +72,41 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         owner.setRole(ROLE_OWNER);
         kbMemberMapper.insert(owner);
 
-        return toVO(entity, ROLE_OWNER, userId);
+        return toMap(entity, ROLE_OWNER, ownerName(userId));
     }
 
     @Override
     @Transactional
-    public KbVO update(Long userId, Long kbId, KbUpsertRequest request) {
+    public Map<String, Object> update(Long userId, Long kbId, Map<String, Object> params) {
         KnowledgeBase entity = requireKb(kbId);
         String role = resolveRole(userId, kbId);
         if (role == null || !WRITABLE_ROLES.contains(role)) {
             throw new BusinessException(ResultCode.KB_NO_PERMISSION);
         }
+        String name = (String) params.get("name");
+        String description = (String) params.get("description");
+        String embeddingModel = (String) params.get("embeddingModel");
+        if (!StringUtils.hasText(name)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "\u77e5\u8bc6\u5e93\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a");
+        }
 
         // 同名校验（排除自身）
         Long duplicate = knowledgeBaseMapper.selectCount(new LambdaQueryWrapper<KnowledgeBase>()
                 .eq(KnowledgeBase::getOwnerId, entity.getOwnerId())
-                .eq(KnowledgeBase::getName, request.getName())
+                .eq(KnowledgeBase::getName, name)
                 .ne(KnowledgeBase::getId, kbId));
         if (duplicate != null && duplicate > 0) {
             throw new BusinessException(ResultCode.KB_NAME_DUPLICATE);
         }
 
-        entity.setName(request.getName());
-        entity.setDescription(request.getDescription());
-        if (StringUtils.hasText(request.getEmbeddingModel())) {
-            entity.setEmbeddingModel(request.getEmbeddingModel());
+        entity.setName(name);
+        entity.setDescription(description);
+        if (StringUtils.hasText(embeddingModel)) {
+            entity.setEmbeddingModel(embeddingModel);
         }
         knowledgeBaseMapper.updateById(entity);
 
-        return toVO(entity, role, entity.getOwnerId());
+        return toMap(entity, role, ownerName(entity.getOwnerId()));
     }
 
     @Override
@@ -112,17 +123,17 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
-    public KbVO detail(Long userId, Long kbId) {
+    public Map<String, Object> detail(Long userId, Long kbId) {
         KnowledgeBase entity = requireKb(kbId);
         String role = resolveRole(userId, kbId);
         if (role == null) {
             throw new BusinessException(ResultCode.KB_NO_PERMISSION);
         }
-        return toVO(entity, role, entity.getOwnerId());
+        return toMap(entity, role, ownerName(entity.getOwnerId()));
     }
 
     @Override
-    public PageVO<KbVO> page(Long userId, long page, long size, String keyword) {
+    public PageVO<Map<String, Object>> page(Long userId, long page, long size, String keyword) {
         // 1. 找出该用户作为成员加入的所有 kbId
         List<Long> joinedKbIds = kbMemberMapper.selectList(new LambdaQueryWrapper<KbMember>()
                         .select(KbMember::getKbId)
@@ -146,7 +157,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
         List<KnowledgeBase> records = result.getRecords();
         if (records.isEmpty()) {
-            return PageVO.map(result, kb -> toVO(kb, null, kb.getOwnerId()));
+            return PageVO.map(result, kb -> toMap(kb, null, null));
         }
 
         // 一次查出本页所有 KB 中 当前用户 的角色
@@ -166,9 +177,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             if (role == null && kb.getOwnerId().equals(userId)) {
                 role = ROLE_OWNER;
             }
-            KbVO vo = toVO(kb, role, kb.getOwnerId());
-            vo.setOwnerName(ownerNameMap.get(kb.getOwnerId()));
-            return vo;
+            return toMap(kb, role, ownerNameMap.get(kb.getOwnerId()));
         });
     }
 
@@ -199,24 +208,30 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         return kb;
     }
 
-    private KbVO toVO(KnowledgeBase entity, String role, Long ownerId) {
-        KbVO vo = new KbVO();
-        BeanUtils.copyProperties(entity, vo);
-        vo.setCurrentUserRole(role);
-        if (ownerId != null && vo.getOwnerName() == null) {
-            // 单条详情场景按需查询，避免 N+1
-            SysUser u = sysUserMapper.selectById(ownerId);
-            if (u != null) {
-                vo.setOwnerName(StringUtils.hasText(u.getNickname()) ? u.getNickname() : u.getUsername());
-            }
-        }
-        return vo;
+    private Map<String, Object> toMap(KnowledgeBase entity, String role, String ownerName) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", entity.getId());
+        m.put("name", entity.getName());
+        m.put("description", entity.getDescription());
+        m.put("embeddingModel", entity.getEmbeddingModel());
+        m.put("ownerId", entity.getOwnerId());
+        m.put("ownerName", ownerName);
+        m.put("status", entity.getStatus());
+        m.put("currentUserRole", role);
+        m.put("createTime", entity.getCreateTime());
+        m.put("updateTime", entity.getUpdateTime());
+        return m;
+    }
+
+    private String ownerName(Long ownerId) {
+        if (ownerId == null) return null;
+        SysUser u = sysUserMapper.selectById(ownerId);
+        if (u == null) return null;
+        return StringUtils.hasText(u.getNickname()) ? u.getNickname() : u.getUsername();
     }
 
     private Map<Long, String> loadOwnerNames(Collection<Long> ownerIds) {
-        if (ownerIds == null || ownerIds.isEmpty()) {
-            return Map.of();
-        }
+        if (ownerIds == null || ownerIds.isEmpty()) return Map.of();
         List<SysUser> users = sysUserMapper.selectBatchIds(ownerIds);
         return users.stream().collect(Collectors.toMap(
                 SysUser::getId,

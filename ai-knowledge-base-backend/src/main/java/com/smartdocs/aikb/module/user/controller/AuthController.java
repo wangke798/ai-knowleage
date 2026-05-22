@@ -1,26 +1,19 @@
 package com.smartdocs.aikb.module.user.controller;
 
 import com.smartdocs.aikb.common.result.Result;
-import com.smartdocs.aikb.module.user.dto.LoginRequest;
-import com.smartdocs.aikb.module.user.dto.LoginResponse;
-import com.smartdocs.aikb.module.user.dto.RefreshRequest;
-import com.smartdocs.aikb.module.user.dto.RegisterRequest;
-import com.smartdocs.aikb.module.user.dto.UserInfoVO;
 import com.smartdocs.aikb.module.user.service.AuthService;
 import com.smartdocs.aikb.security.AuthUser;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
-@Tag(name = "认证")
+import java.util.Map;
+
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
@@ -38,32 +31,29 @@ public class AuthController {
     @Value("${app.cookie.secure:false}")
     private boolean cookieSecure;
 
-    @Operation(summary = "注册账号")
     @PostMapping("/register")
-    public Result<UserInfoVO> register(@Valid @RequestBody RegisterRequest request) {
-        return Result.success(authService.register(request));
+    public Result<Map<String, Object>> register(@RequestBody Map<String, Object> params) {
+        return Result.success(authService.register(params));
     }
 
-    @Operation(summary = "账号密码登录")
     @PostMapping("/login")
-    public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request, HttpServletResponse response) {
-        LoginResponse data = authService.login(request);
-        writeRefreshCookie(response, data.getRefreshToken());
+    public Result<Map<String, Object>> login(@RequestBody Map<String, Object> params, HttpServletResponse response) {
+        Map<String, Object> data = authService.login(params);
+        writeRefreshCookie(response, (String) data.get("refreshToken"));
         return Result.success(data);
     }
 
-    @Operation(summary = "刷新 Access Token")
     @PostMapping("/refresh")
-    public Result<LoginResponse> refresh(@RequestBody(required = false) RefreshRequest body,
-                                         HttpServletRequest request,
-                                         HttpServletResponse response) {
+    public Result<Map<String, Object>> refresh(@RequestBody(required = false) Map<String, Object> body,
+                                               HttpServletRequest request,
+                                               HttpServletResponse response) {
         String refreshToken = resolveRefreshToken(body, request);
-        LoginResponse data = authService.refresh(refreshToken);
-        writeRefreshCookie(response, data.getRefreshToken());
+        Map<String, Object> data = authService.refresh(refreshToken);
+        writeRefreshCookie(response, (String) data.get("refreshToken"));
         return Result.success(data);
     }
 
-    @Operation(summary = "登出（吊销当前 Token）")
+
     @PostMapping("/logout")
     public Result<Void> logout(HttpServletRequest request, HttpServletResponse response) {
         String access = resolveAccessToken(request);
@@ -73,17 +63,17 @@ public class AuthController {
         return Result.success();
     }
 
-    @Operation(summary = "获取当前登录用户")
     @GetMapping("/me")
-    public Result<UserInfoVO> me(@AuthenticationPrincipal AuthUser principal) {
+    public Result<Map<String, Object>> me(@AuthenticationPrincipal AuthUser principal) {
         return Result.success(authService.me(principal.getUserId()));
     }
 
     // ---- helpers ----
 
-    private String resolveRefreshToken(RefreshRequest body, HttpServletRequest request) {
-        if (body != null && StringUtils.hasText(body.getRefreshToken())) {
-            return body.getRefreshToken();
+    private String resolveRefreshToken(Map<String, Object> body, HttpServletRequest request) {
+        if (body != null) {
+            Object rt = body.get("refreshToken");
+            if (rt instanceof String s && StringUtils.hasText(s)) return s;
         }
         return resolveCookieValue(request, REFRESH_COOKIE);
     }

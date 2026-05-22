@@ -5,15 +5,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.ResultCode;
-import com.smartdocs.aikb.module.chat.dto.ChatStreamRequest;
-import com.smartdocs.aikb.module.chat.dto.CitationVO;
 import com.smartdocs.aikb.module.chat.entity.ChatConversation;
 import com.smartdocs.aikb.module.chat.entity.ChatMessage;
 import com.smartdocs.aikb.module.chat.mapper.ChatConversationMapper;
 import com.smartdocs.aikb.module.chat.mapper.ChatMessageMapper;
 import com.smartdocs.aikb.module.chat.service.ConversationService;
 import com.smartdocs.aikb.module.chat.service.RagChatService;
-import com.smartdocs.aikb.module.kb.dto.KbSearchHit;
 import com.smartdocs.aikb.module.kb.entity.KbDocument;
 import com.smartdocs.aikb.module.kb.entity.KbDocumentChunk;
 import com.smartdocs.aikb.module.kb.mapper.KbDocumentChunkMapper;
@@ -67,30 +64,36 @@ public class RagChatServiceImpl implements RagChatService {
     private final ObjectMapper objectMapper;
 
     @Override
-    public void streamChat(Long userId, ChatStreamRequest request, StreamListener listener) {
+    public void streamChat(Long userId, Map<String, Object> params, StreamListener listener) {
         try {
+            String question  = (String)  params.get("question");
+            Long   kbId      = toLong(params.get("kbId"));
+            Long   convId    = toLong(params.get("conversationId"));
+            Integer topKParam = toInt(params.get("topK"));
+            Double threshold  = toDouble(params.get("similarityThreshold"));
+
             // 1) 解析或新建会话
-            ChatConversation conv = resolveConversation(userId, request);
+            ChatConversation conv = resolveConversation(userId, convId, kbId, question);
             listener.onConversationReady(conv.getId());
 
             // 2) 落用户消息
-            ChatMessage userMsg = saveUserMessage(conv.getId(), request.getQuestion());
+            ChatMessage userMsg = saveUserMessage(conv.getId(), question);
             listener.onUserMessageSaved(userMsg.getId());
 
             // 3) 检索 + 组装引用
-            int topK = (request.getTopK() == null || request.getTopK() <= 0) ? 5 : Math.min(request.getTopK(), 20);
-            List<KbSearchHit> hits = retrievalService.search(
-                    userId, conv.getKbId(), request.getQuestion(), topK, request.getSimilarityThreshold());
-            List<CitationVO> citations = toCitations(hits);
+            int topK = (topKParam == null || topKParam <= 0) ? 5 : Math.min(topKParam, 20);
+            List<Map<String, Object>> hits = retrievalService.search(
+                    userId, conv.getKbId(), question, topK, threshold);
+            List<Map<String, Object>> citations = toCitations(hits);
             listener.onCitations(citations);
 
             // 4) 构造 prompt（system + 截断历史 + 当前 user）
             List<Message> messages = new ArrayList<>();
             messages.add(new SystemMessage(SYSTEM_PROMPT));
             messages.addAll(loadHistoryMessages(conv.getId(), userMsg.getId()));
-            messages.add(new UserMessage(buildUserPrompt(request.getQuestion(), hits)));
+            messages.add(new UserMessage(buildUserPrompt(question, hits)));
 
-            // 5) 调流式 LLM；阻塞当前线程直到流结束（让 SSE 控制器能 complete）
+            // 5) 调流式 LLM
             StringBuilder fullAnswer = new StringBuilder();
             CountDownLatch done = new CountDownLatch(1);
             Throwable[] err = {null};
@@ -104,27 +107,24 @@ public class RagChatServiceImpl implements RagChatService {
                             listener.onToken(token);
                         }
                     },
-                    ex -> {
-                        err[0] = ex;
-                        done.countDown();
-                    },
+                    ex -> { err[0] = ex; done.countDown(); },
                     done::countDown
             );
 
             try {
                 if (!done.await(2, TimeUnit.MINUTES)) {
                     subscription.dispose();
-                    throw new BusinessException(ResultCode.AI_SERVICE_ERROR, "LLM 响应超时");
+                    throw new BusinessException(ResultCode.AI_SERVICE_ERROR, "LLM \u54cd\u5e94\u8d85\u65f6");
                 }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 subscription.dispose();
-                throw new BusinessException(ResultCode.AI_SERVICE_ERROR, "对话被中断");
+                throw new BusinessException(ResultCode.AI_SERVICE_ERROR, "\u5bf9\u8bdd\u88ab\u4e2d\u65ad");
             }
 
             if (err[0] != null) {
                 throw new BusinessException(ResultCode.AI_SERVICE_ERROR,
-                        "LLM 调用失败：" + safeMsg(err[0]));
+                        "LLM \u8c03\u7528\u5931\u8d25\uff1a" + safeMsg(err[0]));
             }
 
             // 6) 落 ASSISTANT 消息
@@ -133,7 +133,7 @@ public class RagChatServiceImpl implements RagChatService {
             listener.onAssistantMessageSaved(assistantMsg.getId(), answer);
 
             // 7) 自动以首个问题作标题
-            maybeAutoTitle(conv, request.getQuestion());
+            maybeAutoTitle(conv, question);
 
             listener.onComplete();
         } catch (Throwable t) {
@@ -144,20 +144,20 @@ public class RagChatServiceImpl implements RagChatService {
 
     // ─── 私有辅助 ───
 
-    private ChatConversation resolveConversation(Long userId, ChatStreamRequest request) {
-        if (request.getConversationId() != null) {
-            return conversationService.requireOwn(userId, request.getConversationId());
+    private ChatConversation resolveConversation(Long userId, Long conversationId, Long kbId, String question) {
+        if (conversationId != null) {
+            return conversationService.requireOwn(userId, conversationId);
         }
-        if (request.getKbId() == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "首次提问需指定 kbId");
+        if (kbId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "\u9996\u6b21\u63d0\u95ee\u9700\u6307\u5b9a kbId");
         }
-        if (knowledgeBaseService.resolveRole(userId, request.getKbId()) == null) {
+        if (knowledgeBaseService.resolveRole(userId, kbId) == null) {
             throw new BusinessException(ResultCode.KB_NO_PERMISSION);
         }
         ChatConversation c = new ChatConversation();
         c.setUserId(userId);
-        c.setKbId(request.getKbId());
-        c.setTitle(truncate(request.getQuestion(), 30));
+        c.setKbId(kbId);
+        c.setTitle(truncate(question, 30));
         conversationMapper.insert(c);
         return c;
     }
@@ -171,13 +171,16 @@ public class RagChatServiceImpl implements RagChatService {
         return m;
     }
 
-    private ChatMessage saveAssistantMessage(Long convId, String content, List<CitationVO> citations) {
+    private ChatMessage saveAssistantMessage(Long convId, String content, List<Map<String, Object>> citations) {
         ChatMessage m = new ChatMessage();
         m.setConversationId(convId);
         m.setRole("ASSISTANT");
         m.setContent(content);
         if (citations != null && !citations.isEmpty()) {
-            List<Long> ids = citations.stream().map(CitationVO::getChunkId).toList();
+            List<Long> ids = citations.stream()
+                    .map(c -> toLong(c.get("chunkId")))
+                    .filter(Objects::nonNull)
+                    .toList();
             try {
                 m.setCitationChunkIds(objectMapper.writeValueAsString(ids));
             } catch (JsonProcessingException e) {
@@ -185,7 +188,6 @@ public class RagChatServiceImpl implements RagChatService {
             }
         }
         messageMapper.insert(m);
-        // 更新 conversation.update_time 由 MybatisPlus 自动填充
         return m;
     }
 
@@ -218,28 +220,34 @@ public class RagChatServiceImpl implements RagChatService {
         return out;
     }
 
-    private String buildUserPrompt(String question, List<KbSearchHit> hits) {
+    private String buildUserPrompt(String question, List<Map<String, Object>> hits) {
         StringBuilder sb = new StringBuilder();
-        sb.append("【上下文片段】\n");
+        sb.append("\u300c\u4e0a\u4e0b\u6587\u7247\u6bb5\u300d\n");
         if (hits == null || hits.isEmpty()) {
-            sb.append("（无相关片段）\n");
+            sb.append("\uff08\u65e0\u76f8\u5173\u7247\u6bb5\uff09\n");
         } else {
             for (int i = 0; i < hits.size(); i++) {
-                KbSearchHit h = hits.get(i);
+                Map<String, Object> h = hits.get(i);
                 sb.append("[#").append(i + 1).append("] ");
-                if (h.getDocName() != null) sb.append("来源：").append(h.getDocName()).append(" ");
-                sb.append("(chunk ").append(h.getSeq()).append(")\n");
-                sb.append(h.getContent() == null ? "" : h.getContent()).append("\n\n");
+                String docName = (String) h.get("docName");
+                if (docName != null) sb.append("\u6765\u6e90\uff1a").append(docName).append(" ");
+                Object seq = h.get("seq");
+                sb.append("(chunk ").append(seq).append(")\n");
+                Object content = h.get("content");
+                sb.append(content == null ? "" : content).append("\n\n");
             }
         }
-        sb.append("【用户问题】\n").append(question).append('\n');
+        sb.append("\u300c\u7528\u6237\u95ee\u9898\u300d\n").append(question).append('\n');
         return sb.toString();
     }
 
-    private List<CitationVO> toCitations(List<KbSearchHit> hits) {
+    private List<Map<String, Object>> toCitations(List<Map<String, Object>> hits) {
         if (hits == null || hits.isEmpty()) return List.of();
         Set<Long> chunkIds = new LinkedHashSet<>();
-        for (KbSearchHit h : hits) if (h.getChunkId() != null) chunkIds.add(h.getChunkId());
+        for (Map<String, Object> h : hits) {
+            Long id = toLong(h.get("chunkId"));
+            if (id != null) chunkIds.add(id);
+        }
         if (chunkIds.isEmpty()) return List.of();
         Map<Long, KbDocumentChunk> chunkMap = chunkMapper.selectBatchIds(chunkIds).stream()
                 .collect(java.util.stream.Collectors.toMap(KbDocumentChunk::getId, c -> c));
@@ -247,16 +255,17 @@ public class RagChatServiceImpl implements RagChatService {
                 .collect(java.util.stream.Collectors.toSet());
         Map<Long, String> docNames = docIds.isEmpty() ? Map.of() : documentMapper.selectBatchIds(docIds).stream()
                 .collect(java.util.stream.Collectors.toMap(KbDocument::getId, KbDocument::getName));
-        List<CitationVO> out = new ArrayList<>(hits.size());
-        for (KbSearchHit h : hits) {
-            CitationVO v = new CitationVO();
-            v.setChunkId(h.getChunkId());
-            v.setDocId(h.getDocId());
-            v.setSeq(h.getSeq());
-            v.setScore(h.getScore());
-            v.setDocName(h.getDocName() != null ? h.getDocName() : docNames.get(h.getDocId()));
-            v.setSnippet(truncate(h.getContent(), 200));
-            out.add(v);
+        List<Map<String, Object>> out = new ArrayList<>(hits.size());
+        for (Map<String, Object> h : hits) {
+            Map<String, Object> cit = new LinkedHashMap<>();
+            cit.put("chunkId", h.get("chunkId"));
+            cit.put("docId", h.get("docId"));
+            cit.put("seq", h.get("seq"));
+            cit.put("score", h.get("score"));
+            String dn = (String) h.get("docName");
+            cit.put("docName", dn != null ? dn : docNames.get(toLong(h.get("docId"))));
+            cit.put("snippet", truncate((String) h.get("content"), 200));
+            out.add(cit);
         }
         return out;
     }
@@ -276,5 +285,23 @@ public class RagChatServiceImpl implements RagChatService {
     private static String safeMsg(Throwable e) {
         String m = e.getMessage();
         return m == null ? e.getClass().getSimpleName() : m;
+    }
+
+    private static Long toLong(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.longValue();
+        try { return Long.parseLong(v.toString()); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static Integer toInt(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(v.toString()); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static Double toDouble(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.doubleValue();
+        try { return Double.parseDouble(v.toString()); } catch (NumberFormatException e) { return null; }
     }
 }

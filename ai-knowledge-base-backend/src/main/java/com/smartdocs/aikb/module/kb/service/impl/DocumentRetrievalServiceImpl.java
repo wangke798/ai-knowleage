@@ -2,7 +2,6 @@ package com.smartdocs.aikb.module.kb.service.impl;
 
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.ResultCode;
-import com.smartdocs.aikb.module.kb.dto.KbSearchHit;
 import com.smartdocs.aikb.module.kb.service.DocumentRetrievalService;
 import com.smartdocs.aikb.module.kb.service.KnowledgeBaseService;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +27,7 @@ public class DocumentRetrievalServiceImpl implements DocumentRetrievalService {
     private final KnowledgeBaseService knowledgeBaseService;
 
     @Override
-    public List<KbSearchHit> search(Long userId, Long kbId, String query, int topK, Double threshold) {
+    public List<Map<String, Object>> search(Long userId, Long kbId, String query, int topK, Double threshold) {
         if (!StringUtils.hasText(query)) {
             return List.of();
         }
@@ -56,22 +55,22 @@ public class DocumentRetrievalServiceImpl implements DocumentRetrievalService {
         }
         if (docs == null || docs.isEmpty()) return List.of();
 
-        List<KbSearchHit> hits = new ArrayList<>(docs.size());
+        List<Map<String, Object>> hits = new ArrayList<>(docs.size());
         for (Document d : docs) {
             Map<String, Object> meta = d.getMetadata();
-            KbSearchHit hit = new KbSearchHit();
-            hit.setContent(d.getText());
-            hit.setScore(d.getScore());
-            hit.setKbId(parseLong(meta.get("kbId")));
-            hit.setDocId(parseLong(meta.get("docId")));
-            hit.setChunkId(parseLong(meta.get("chunkId")));
+            Map<String, Object> hit = new java.util.LinkedHashMap<>();
+            hit.put("content", d.getText());
+            hit.put("score", d.getScore());
+            hit.put("kbId", parseLong(meta.get("kbId")));
+            hit.put("docId", parseLong(meta.get("docId")));
+            hit.put("chunkId", parseLong(meta.get("chunkId")));
             Object seq = meta.get("seq");
-            if (seq instanceof Number n) hit.setSeq(n.intValue());
+            if (seq instanceof Number n) hit.put("seq", n.intValue());
             else if (seq != null) {
-                try { hit.setSeq(Integer.parseInt(seq.toString())); } catch (NumberFormatException ignored) {}
+                try { hit.put("seq", Integer.parseInt(seq.toString())); } catch (NumberFormatException ignored) {}
             }
             Object name = meta.get("docName");
-            if (name != null) hit.setDocName(name.toString());
+            if (name != null) hit.put("docName", name.toString());
             hits.add(hit);
         }
         return hits;
