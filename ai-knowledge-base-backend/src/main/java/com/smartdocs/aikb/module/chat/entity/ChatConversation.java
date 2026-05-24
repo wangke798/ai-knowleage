@@ -18,6 +18,9 @@ public class ChatConversation {
 
     private String title;
 
+    /** 是否收藏：0-否 1-是 */
+    private Integer isFavorite;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 

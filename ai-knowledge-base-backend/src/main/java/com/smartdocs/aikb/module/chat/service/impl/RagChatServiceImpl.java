@@ -2,7 +2,9 @@ package com.smartdocs.aikb.module.chat.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartdocs.aikb.common.constant.RedisConstants;
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.ResultCode;
 import com.smartdocs.aikb.module.chat.entity.ChatConversation;
@@ -16,7 +18,9 @@ import com.smartdocs.aikb.module.kb.entity.KbDocumentChunk;
 import com.smartdocs.aikb.module.kb.mapper.KbDocumentChunkMapper;
 import com.smartdocs.aikb.module.kb.mapper.KbDocumentMapper;
 import com.smartdocs.aikb.module.kb.service.DocumentRetrievalService;
+import com.smartdocs.aikb.module.kb.service.HydeRetrievalService;
 import com.smartdocs.aikb.module.kb.service.KnowledgeBaseService;
+import com.smartdocs.aikb.module.kb.service.RerankService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -26,11 +30,16 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -53,14 +62,29 @@ public class RagChatServiceImpl implements RagChatService {
     /** 单条历史消息内容超过此长度时截断 */
     private static final int HISTORY_MSG_MAX_CHARS = 800;
 
+    @Value("${app.rag.hyde.enabled:false}")
+    private boolean hydeEnabled;
+
+    @Value("${app.rag.rerank.enabled:true}")
+    private boolean rerankEnabled;
+
+    @Value("${app.rag.cache.enabled:true}")
+    private boolean cacheEnabled;
+
+    @Value("${app.rag.cache.ttl-minutes:60}")
+    private long cacheTtlMinutes;
+
     private final ChatClient chatClient;
     private final DocumentRetrievalService retrievalService;
+    private final HydeRetrievalService hydeRetrievalService;
+    private final RerankService rerankService;
     private final ConversationService conversationService;
     private final ChatConversationMapper conversationMapper;
     private final ChatMessageMapper messageMapper;
     private final KbDocumentChunkMapper chunkMapper;
     private final KbDocumentMapper documentMapper;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -80,10 +104,45 @@ public class RagChatServiceImpl implements RagChatService {
             ChatMessage userMsg = saveUserMessage(conv.getId(), question);
             listener.onUserMessageSaved(userMsg.getId());
 
-            // 3) 检索 + 组装引用
+            // ─── Redis 缓存命中检查 ────────────────────────────────────────
+            String cacheKey = buildCacheKey(conv.getKbId(), question);
+            if (cacheEnabled && cacheKey != null) {
+                String cached = tryGetCache(cacheKey);
+                if (cached != null) {
+                    log.debug("[RAG] cache hit key={}", cacheKey);
+                    // 解析缓存中的 citations + answer
+                    Map<String, Object> cachedData = parseCached(cached);
+                    if (cachedData != null) {
+                        @SuppressWarnings("unchecked")
+                        List<Map<String, Object>> cachedCitations = (List<Map<String, Object>>) cachedData.get("citations");
+                        String cachedAnswer = (String) cachedData.get("answer");
+                        if (cachedCitations != null) listener.onCitations(cachedCitations);
+                        // 将缓存答案按 token 粒度推送（模拟流式体验）
+                        for (String chunk : splitTokens(cachedAnswer, 10)) {
+                            listener.onToken(chunk);
+                        }
+                        ChatMessage assistantMsg = saveAssistantMessage(conv.getId(), cachedAnswer, cachedCitations);
+                        listener.onAssistantMessageSaved(assistantMsg.getId(), cachedAnswer);
+                        maybeAutoTitle(conv, question);
+                        listener.onComplete();
+                        return;
+                    }
+                }
+            }
+            // ──────────────────────────────────────────────────────────────
+
+            // 3) 检索（HyDE 增强 or 普通）+ Rerank
             int topK = (topKParam == null || topKParam <= 0) ? 5 : Math.min(topKParam, 20);
-            List<Map<String, Object>> hits = retrievalService.search(
-                    userId, conv.getKbId(), question, topK, threshold);
+            List<Map<String, Object>> hits;
+            if (hydeEnabled) {
+                hits = hydeRetrievalService.searchWithHyde(userId, conv.getKbId(), question, topK, threshold);
+            } else {
+                hits = retrievalService.search(userId, conv.getKbId(), question, topK, threshold);
+            }
+            if (rerankEnabled && !hits.isEmpty()) {
+                hits = rerankService.rerank(question, hits);
+            }
+
             List<Map<String, Object>> citations = toCitations(hits);
             listener.onCitations(citations);
 
@@ -114,17 +173,17 @@ public class RagChatServiceImpl implements RagChatService {
             try {
                 if (!done.await(2, TimeUnit.MINUTES)) {
                     subscription.dispose();
-                    throw new BusinessException(ResultCode.AI_SERVICE_ERROR, "LLM \u54cd\u5e94\u8d85\u65f6");
+                    throw new BusinessException(ResultCode.AI_SERVICE_ERROR, "LLM 响应超时");
                 }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 subscription.dispose();
-                throw new BusinessException(ResultCode.AI_SERVICE_ERROR, "\u5bf9\u8bdd\u88ab\u4e2d\u65ad");
+                throw new BusinessException(ResultCode.AI_SERVICE_ERROR, "对话被中断");
             }
 
             if (err[0] != null) {
                 throw new BusinessException(ResultCode.AI_SERVICE_ERROR,
-                        "LLM \u8c03\u7528\u5931\u8d25\uff1a" + safeMsg(err[0]));
+                        "LLM 调用失败：" + safeMsg(err[0]));
             }
 
             // 6) 落 ASSISTANT 消息
@@ -135,11 +194,76 @@ public class RagChatServiceImpl implements RagChatService {
             // 7) 自动以首个问题作标题
             maybeAutoTitle(conv, question);
 
+            // 8) 写入 Redis 缓存
+            if (cacheEnabled && cacheKey != null && StringUtils.hasText(answer)) {
+                trySaveCache(cacheKey, answer, citations);
+            }
+
             listener.onComplete();
         } catch (Throwable t) {
             log.error("[RAG] stream failed", t);
             listener.onError(t);
         }
+    }
+
+    // ─── 缓存辅助 ───
+
+    /** 构建缓存 key：SHA-256(kbId + ":" + normalizedQuestion)。 */
+    private static String buildCacheKey(Long kbId, String question) {
+        if (kbId == null || !StringUtils.hasText(question)) return null;
+        // 归一化：去除多余空白、转小写
+        String normalized = question.trim().replaceAll("\\s+", " ").toLowerCase();
+        String raw = kbId + ":" + normalized;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(raw.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(64);
+            for (byte b : digest) hex.append(String.format("%02x", b));
+            return RedisConstants.CHAT_CACHE_PREFIX + hex;
+        } catch (NoSuchAlgorithmException e) {
+            log.warn("[RAG] SHA-256 not available", e);
+            return null;
+        }
+    }
+
+    private String tryGetCache(String key) {
+        try {
+            return redisTemplate.opsForValue().get(key);
+        } catch (Exception e) {
+            log.warn("[RAG] Redis get failed key={}: {}", key, e.getMessage());
+            return null;
+        }
+    }
+
+    private void trySaveCache(String key, String answer, List<Map<String, Object>> citations) {
+        try {
+            Map<String, Object> data = Map.of("answer", answer,
+                    "citations", citations == null ? List.of() : citations);
+            String json = objectMapper.writeValueAsString(data);
+            redisTemplate.opsForValue().set(key, json, cacheTtlMinutes, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("[RAG] Redis set failed key={}: {}", key, e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseCached(String json) {
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            log.warn("[RAG] parse cached JSON failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 将长文本切成 n 字一组的小块，模拟 token 流。 */
+    private static List<String> splitTokens(String text, int chunkSize) {
+        if (text == null || text.isEmpty()) return List.of();
+        List<String> chunks = new ArrayList<>();
+        for (int i = 0; i < text.length(); i += chunkSize) {
+            chunks.add(text.substring(i, Math.min(i + chunkSize, text.length())));
+        }
+        return chunks;
     }
 
     // ─── 私有辅助 ───

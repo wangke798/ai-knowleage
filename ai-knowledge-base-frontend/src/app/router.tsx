@@ -11,6 +11,8 @@ import { ChatHomePage } from '@/features/chat/pages/ChatHomePage'
 import { ChatPage } from '@/features/chat/pages/ChatPage'
 import { ProfilePage } from '@/features/settings/pages/ProfilePage'
 import { SecurityPage } from '@/features/settings/pages/SecurityPage'
+import { ModelConfigPage } from '@/features/settings/pages/ModelConfigPage'
+import { DocDetailPage } from '@/features/document/pages/DocDetailPage'
 
 export const router = createBrowserRouter([
   {
@@ -32,10 +34,12 @@ export const router = createBrowserRouter([
         children: [
           { path: 'kb',                            element: <KbListPage /> },
           { path: 'kb/:kbId',                      element: <KbDetailPage /> },
+          { path: 'kb/:kbId/docs/:docId',          element: <DocDetailPage /> },
           { path: 'chat',                          element: <ChatHomePage /> },
           { path: 'chat/:conversationId',          element: <ChatPage /> },
           { path: 'settings/profile',              element: <ProfilePage /> },
           { path: 'settings/security',             element: <SecurityPage /> },
+          { path: 'settings/models',               element: <ModelConfigPage /> },
         ],
       },
     ],

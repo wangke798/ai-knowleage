@@ -49,4 +49,11 @@ public class KnowledgeBaseController {
         knowledgeBaseService.delete(userId, kbId);
         return Result.success();
     }
+
+    /** 知识库统计：文档数、分块数、会话数、消息数。 */
+    @GetMapping("/{kbId}/stats")
+    public Result<Map<String, Object>> stats(@PathVariable Long kbId) {
+        Long userId = CurrentUserHolder.requireUserId();
+        return Result.success(knowledgeBaseService.stats(userId, kbId));
+    }
 }

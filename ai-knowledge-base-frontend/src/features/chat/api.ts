@@ -7,9 +7,14 @@ export interface ConversationCreateRequest {
   title?: string
 }
 
+export interface ConversationListQuery {
+  keyword?: string
+  favoriteOnly?: boolean
+}
+
 export const chatApi = {
-  listConversations: async () => {
-    const res = (await request.get('/chat/conversations')) as unknown as Result<Conversation[]>
+  listConversations: async (params?: ConversationListQuery) => {
+    const res = (await request.get('/chat/conversations', { params })) as unknown as Result<Conversation[]>
     return res.data
   },
 
@@ -30,6 +35,22 @@ export const chatApi = {
 
   deleteConversation: async (conversationId: string) => {
     await request.delete(`/chat/conversations/${conversationId}`)
+  },
+
+  toggleFavorite: async (conversationId: string) => {
+    const res = (await request.post(`/chat/conversations/${conversationId}/favorite`)) as unknown as Result<{ isFavorite: boolean }>
+    return res.data
+  },
+
+  exportConversation: (conversationId: string, format: 'markdown' | 'text' | 'json' = 'markdown') => {
+    // 直接打开下载链接（浏览器级下载）
+    const url = `/api/chat/conversations/${conversationId}/export?format=${format}`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `conversation_${conversationId}.${format === 'json' ? 'json' : format === 'text' ? 'txt' : 'md'}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   },
 
   listMessages: async (conversationId: string) => {

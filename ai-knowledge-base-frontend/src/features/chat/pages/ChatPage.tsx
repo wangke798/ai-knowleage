@@ -37,7 +37,7 @@ export function ChatPage() {
     onPersistedAssistantMessage: (m) => {
       setLocalMessages((prev) => [...prev, m])
       // 同步刷新会话列表（更新时间）
-      qc.invalidateQueries({ queryKey: conversationKeys.list() })
+      qc.invalidateQueries({ queryKey: conversationKeys.all })
       if (id) qc.invalidateQueries({ queryKey: conversationKeys.messages(id) })
     },
   })

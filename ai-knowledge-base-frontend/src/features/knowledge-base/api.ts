@@ -17,6 +17,14 @@ export interface KbPageQuery {
   keyword?: string
 }
 
+export interface KbStats {
+  docCount: number
+  parsedDocCount: number
+  chunkCount: number
+  conversationCount: number
+  messageCount: number
+}
+
 export const kbApi = {
   page: async (params: KbPageQuery = {}) => {
     const res = (await request.get('/kb', { params })) as unknown as Result<PageResult<KnowledgeBase>>
@@ -40,6 +48,11 @@ export const kbApi = {
 
   remove: async (kbId: string) => {
     await request.delete(`/kb/${kbId}`)
+  },
+
+  stats: async (kbId: string) => {
+    const res = (await request.get(`/kb/${kbId}/stats`)) as unknown as Result<KbStats>
+    return res.data
   },
 }
 

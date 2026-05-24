@@ -5,15 +5,22 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smartdocs.aikb.common.exception.BusinessException;
 import com.smartdocs.aikb.common.result.PageVO;
 import com.smartdocs.aikb.common.result.ResultCode;
+import com.smartdocs.aikb.module.chat.entity.ChatConversation;
+import com.smartdocs.aikb.module.chat.entity.ChatMessage;
+import com.smartdocs.aikb.module.chat.mapper.ChatConversationMapper;
+import com.smartdocs.aikb.module.chat.mapper.ChatMessageMapper;
+import com.smartdocs.aikb.module.kb.entity.KbDocument;
+import com.smartdocs.aikb.module.kb.entity.KbDocumentChunk;
 import com.smartdocs.aikb.module.kb.entity.KbMember;
 import com.smartdocs.aikb.module.kb.entity.KnowledgeBase;
+import com.smartdocs.aikb.module.kb.mapper.KbDocumentChunkMapper;
+import com.smartdocs.aikb.module.kb.mapper.KbDocumentMapper;
 import com.smartdocs.aikb.module.kb.mapper.KbMemberMapper;
 import com.smartdocs.aikb.module.kb.mapper.KnowledgeBaseMapper;
 import com.smartdocs.aikb.module.kb.service.KnowledgeBaseService;
 import com.smartdocs.aikb.module.user.entity.SysUser;
 import com.smartdocs.aikb.module.user.mapper.SysUserMapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -39,6 +46,10 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final KbMemberMapper kbMemberMapper;
     private final SysUserMapper sysUserMapper;
+    private final KbDocumentMapper kbDocumentMapper;
+    private final KbDocumentChunkMapper kbDocumentChunkMapper;
+    private final ChatConversationMapper chatConversationMapper;
+    private final ChatMessageMapper chatMessageMapper;
 
     @Override
     @Transactional
@@ -196,6 +207,44 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             return ROLE_OWNER;
         }
         return null;
+    }
+
+    @Override
+    public Map<String, Object> stats(Long userId, Long kbId) {
+        if (resolveRole(userId, kbId) == null) {
+            throw new BusinessException(ResultCode.KB_NO_PERMISSION);
+        }
+        // 文档数（非软删除）
+        long docCount = kbDocumentMapper.selectCount(
+                new LambdaQueryWrapper<KbDocument>().eq(KbDocument::getKbId, kbId));
+        // 已完成的文档数
+        long parsedCount = kbDocumentMapper.selectCount(
+                new LambdaQueryWrapper<KbDocument>()
+                        .eq(KbDocument::getKbId, kbId)
+                        .eq(KbDocument::getParseStatus, "DONE"));
+        // 分块数
+        long chunkCount = kbDocumentChunkMapper.selectCount(
+                new LambdaQueryWrapper<KbDocumentChunk>().eq(KbDocumentChunk::getKbId, kbId));
+        // 会话数
+        long convCount = chatConversationMapper.selectCount(
+                new LambdaQueryWrapper<ChatConversation>().eq(ChatConversation::getKbId, kbId));
+        // 消息数（通过子查询获取属于该 KB 会话的消息数）
+        // 简单实现：取会话 id 列表后 count
+        List<Long> convIds = chatConversationMapper.selectList(
+                new LambdaQueryWrapper<ChatConversation>()
+                        .select(ChatConversation::getId)
+                        .eq(ChatConversation::getKbId, kbId))
+                .stream().map(ChatConversation::getId).toList();
+        long msgCount = convIds.isEmpty() ? 0L : chatMessageMapper.selectCount(
+                new LambdaQueryWrapper<ChatMessage>().in(ChatMessage::getConversationId, convIds));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("docCount", docCount);
+        result.put("parsedDocCount", parsedCount);
+        result.put("chunkCount", chunkCount);
+        result.put("conversationCount", convCount);
+        result.put("messageCount", msgCount);
+        return result;
     }
 
     // ------------------------- helpers -------------------------

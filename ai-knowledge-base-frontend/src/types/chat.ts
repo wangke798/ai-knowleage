@@ -3,6 +3,7 @@ export interface Conversation {
   kbId: string
   kbName?: string
   title: string
+  isFavorite: boolean
   createTime: string
   updateTime?: string
 }

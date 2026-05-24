@@ -6,6 +6,7 @@ const KB_KEYS = {
   all: ['kb'] as const,
   list: (q: KbPageQuery) => ['kb', 'list', q] as const,
   detail: (id: string) => ['kb', 'detail', id] as const,
+  stats: (id: string) => ['kb', 'stats', id] as const,
 }
 
 export function useKnowledgeBases(query: KbPageQuery = {}) {
@@ -20,6 +21,15 @@ export function useKnowledgeBase(kbId: string | undefined) {
     queryKey: KB_KEYS.detail(kbId ?? ''),
     queryFn: () => kbApi.detail(kbId!),
     enabled: !!kbId,
+  })
+}
+
+export function useKbStats(kbId: string | undefined) {
+  return useQuery({
+    queryKey: KB_KEYS.stats(kbId ?? ''),
+    queryFn: () => kbApi.stats(kbId!),
+    enabled: !!kbId,
+    refetchInterval: 30_000, // 每 30s 刷新一次
   })
 }
 

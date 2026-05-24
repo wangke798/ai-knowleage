@@ -58,6 +58,16 @@ app:
     secret: ${JWT_SECRET:change-me-in-production-at-least-32-chars}
     access-token-expire: 900       # 15 分钟（秒）
     refresh-token-expire: 604800   # 7 天（秒）
+
+  # RAG 增强配置
+  rag:
+    hyde:
+      enabled: false    # HyDE 假设答案增强检索（开启后每次多一次 LLM 调用）
+    rerank:
+      enabled: true     # 关键词混合重排序（无额外模型依赖，建议开启）
+    cache:
+      enabled: true     # Redis 问答缓存（相同问题+KB 直接返回缓存）
+      ttl-minutes: 60   # 缓存有效期（分钟）
   # CORS
   cors:
     # 多个用逗号分隔；前端默认 8000 端口，Vite 默认 5173
