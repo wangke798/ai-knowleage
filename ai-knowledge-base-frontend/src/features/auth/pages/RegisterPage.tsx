@@ -3,13 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { AxiosError } from 'axios'
 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { useRegister } from '../hooks/useAuth'
-import type { Result } from '@/types/api'
 
 const schema = z
   .object({
@@ -38,7 +36,6 @@ export function RegisterPage() {
   const {
     register,
     handleSubmit,
-    setError,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -55,29 +52,30 @@ export function RegisterPage() {
       })
       setDone(true)
       setTimeout(() => navigate('/login', { replace: true }), 1200)
-    } catch (err) {
-      const msg =
-        (err as Result | undefined)?.message ??
-        (err as AxiosError | undefined)?.message ??
-        '注册失败，请稍后再试'
-      setError('root', { message: msg })
+    } catch {
+      // 错误提示由 axios 拦截器统一弹出 toast
     }
   }
 
   return (
-    <form
-      onSubmit={handleSubmit(onSubmit)}
-      className="rounded-xl border bg-card p-8 shadow-sm w-[400px]"
-    >
-      <h1 className="text-2xl font-bold mb-1 text-center">注册</h1>
-      <p className="text-xs text-muted-foreground mb-6 text-center">
-        创建你的 AI 知识库账号
-      </p>
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <h1 className="text-3xl font-bold tracking-tight">创建账号 ✨</h1>
+        <p className="text-sm text-muted-foreground">开启您的 AI 知识库之旅</p>
+      </div>
 
-      <div className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="reg-username">用户名 *</Label>
-          <Input id="reg-username" autoComplete="username" {...register('username')} />
+          <Label htmlFor="reg-username">
+            用户名 <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="reg-username"
+            placeholder="3-32 位字母、数字、下划线"
+            autoComplete="username"
+            className="h-11"
+            {...register('username')}
+          />
           {errors.username && (
             <p className="text-xs text-destructive">{errors.username.message}</p>
           )}
@@ -85,7 +83,7 @@ export function RegisterPage() {
 
         <div className="space-y-1.5">
           <Label htmlFor="reg-nickname">昵称</Label>
-          <Input id="reg-nickname" {...register('nickname')} />
+          <Input id="reg-nickname" placeholder="可选" className="h-11" {...register('nickname')} />
           {errors.nickname && (
             <p className="text-xs text-destructive">{errors.nickname.message}</p>
           )}
@@ -93,16 +91,27 @@ export function RegisterPage() {
 
         <div className="space-y-1.5">
           <Label htmlFor="reg-email">邮箱</Label>
-          <Input id="reg-email" type="email" autoComplete="email" {...register('email')} />
+          <Input
+            id="reg-email"
+            type="email"
+            placeholder="可选"
+            autoComplete="email"
+            className="h-11"
+            {...register('email')}
+          />
           {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="reg-password">密码 *</Label>
+          <Label htmlFor="reg-password">
+            密码 <span className="text-destructive">*</span>
+          </Label>
           <Input
             id="reg-password"
             type="password"
+            placeholder="至少 6 位"
             autoComplete="new-password"
+            className="h-11"
             {...register('password')}
           />
           {errors.password && (
@@ -111,11 +120,15 @@ export function RegisterPage() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="reg-confirm">确认密码 *</Label>
+          <Label htmlFor="reg-confirm">
+            确认密码 <span className="text-destructive">*</span>
+          </Label>
           <Input
             id="reg-confirm"
             type="password"
+            placeholder="再次输入密码"
             autoComplete="new-password"
+            className="h-11"
             {...register('confirmPassword')}
           />
           {errors.confirmPassword && (
@@ -123,28 +136,27 @@ export function RegisterPage() {
           )}
         </div>
 
-        {errors.root && (
-          <p className="text-sm text-destructive text-center">{errors.root.message}</p>
-        )}
         {done && (
-          <p className="text-sm text-emerald-600 text-center">注册成功，正在跳转登录...</p>
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+            <p className="text-sm text-emerald-600">注册成功，正在跳转登录...</p>
+          </div>
         )}
 
         <Button
           type="submit"
-          className="w-full"
+          className="w-full h-11 text-base"
           disabled={isSubmitting || registerMutation.isPending || done}
         >
-          {registerMutation.isPending ? '提交中...' : '注册'}
+          {registerMutation.isPending ? '提交中...' : '注 册'}
         </Button>
 
-        <p className="text-center text-xs text-muted-foreground">
+        <p className="text-center text-sm text-muted-foreground">
           已有账号？
-          <Link to="/login" className="ml-1 text-primary hover:underline">
+          <Link to="/login" className="ml-1 font-medium text-primary hover:underline">
             返回登录
           </Link>
         </p>
-      </div>
-    </form>
+      </form>
+    </div>
   )
 }

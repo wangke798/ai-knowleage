@@ -60,6 +60,23 @@ public class AuthServiceImpl implements AuthService {
     public Map<String, Object> login(Map<String, Object> params) {
         String username = (String) params.get("username");
         String password = (String) params.get("password");
+        String captchaId = (String) params.get("captchaId");
+        String captchaCode = (String) params.get("captchaCode");
+
+        if (!StringUtils.hasText(captchaId) || !StringUtils.hasText(captchaCode)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "验证码不能为空");
+        }
+
+        String cacheCaptcha = redisTemplate.opsForValue().get("captcha:" + captchaId);
+        if (!StringUtils.hasText(cacheCaptcha)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "验证码已过期，请重新获取");
+        }
+        if (!cacheCaptcha.equalsIgnoreCase(captchaCode)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "验证码错误");
+        }
+        // 验证成功后删除验证码
+        redisTemplate.delete("captcha:" + captchaId);
+
         SysUser user = sysUserMapper.selectByUsername(username);
         if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
             throw new BusinessException(ResultCode.PASSWORD_INCORRECT, "用户名或密码错误");

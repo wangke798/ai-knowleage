@@ -14,6 +14,16 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+import com.wf.captcha.SpecCaptcha;
+import com.wf.captcha.base.Captcha;
+import com.smartdocs.aikb.common.exception.BusinessException;
+import com.smartdocs.aikb.common.result.ResultCode;
+
+import java.util.HashMap;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import org.springframework.data.redis.core.StringRedisTemplate;
+
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
@@ -22,14 +32,34 @@ public class AuthController {
     private static final String REFRESH_COOKIE = "refresh_token";
     private static final String AUTH_HEADER = "Authorization";
     private static final String BEARER = "Bearer ";
+    private static final String CAPTCHA_CACHE_PREFIX = "captcha:";
 
     private final AuthService authService;
+    private final StringRedisTemplate redisTemplate;
 
     @Value("${app.jwt.refresh-token-expire:604800}")
     private int refreshTtlSeconds;
 
     @Value("${app.cookie.secure:false}")
     private boolean cookieSecure;
+
+    @GetMapping("/captcha")
+    public Result<Map<String, String>> getCaptcha() {
+        // 4 位字符验证码（数字+字母），不依赖 Nashorn 脚本引擎，兼容 Java 9+
+        SpecCaptcha captcha = new SpecCaptcha(130, 48, 4);
+        captcha.setCharType(Captcha.TYPE_DEFAULT); // 数字+大小写字母
+        String result = captcha.text();
+        String base64Image = captcha.toBase64();
+
+        String uuid = UUID.randomUUID().toString().replace("-", "");
+        // 设置验证码5分钟有效
+        redisTemplate.opsForValue().set(CAPTCHA_CACHE_PREFIX + uuid, result, 5, TimeUnit.MINUTES);
+
+        Map<String, String> data = new HashMap<>();
+        data.put("captchaId", uuid);
+        data.put("captchaImage", base64Image);
+        return Result.success(data);
+    }
 
     @PostMapping("/register")
     public Result<Map<String, Object>> register(@RequestBody Map<String, Object> params) {

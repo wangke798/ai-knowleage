@@ -3,6 +3,8 @@ import type { UserInfo } from '@/stores/authStore'
 export interface LoginRequest {
   username: string
   password: string
+  captchaId: string
+  captchaCode: string
 }
 
 export interface RegisterRequest {
@@ -18,4 +20,9 @@ export interface LoginResponse {
   refreshToken: string
   refreshTokenExpireAt: number
   user: UserInfo
+}
+
+export interface CaptchaResponse {
+  captchaId: string
+  captchaImage: string
 }

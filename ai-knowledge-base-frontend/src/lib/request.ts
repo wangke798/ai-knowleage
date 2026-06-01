@@ -1,4 +1,5 @@
 import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios'
+import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/authStore'
 import { uuid } from '@/lib/utils'
 
@@ -56,7 +57,25 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 request.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    // 后端业务异常默认返回 HTTP 200 + { code, message, data }，code !== 200 视为业务错误
+    const body = response.data as { code?: number; message?: string } | undefined
+    if (
+      body &&
+      typeof body === 'object' &&
+      'code' in body &&
+      body.code !== undefined &&
+      body.code !== 200 &&
+      body.code !== 0
+    ) {
+      const silent = (response.config as RetriableConfig & { _silent?: boolean })?._silent
+      if (!silent) {
+        toast.error(body.message || '请求失败，请稍后再试')
+      }
+      return Promise.reject(body)
+    }
+    return response.data
+  },
   async (error: AxiosError) => {
     const original = error.config as RetriableConfig | undefined
     const status = error.response?.status
@@ -79,6 +98,19 @@ request.interceptors.response.use(
       if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
         window.location.href = '/login'
       }
+    }
+
+    // 统一错误提示（跳过静默接口）
+    const payload = error.response?.data as { message?: string; code?: number } | undefined
+    const silent = (original as RetriableConfig & { _silent?: boolean })?._silent
+    const isAuthMeRequest = url?.includes('/auth/me')
+
+    if (!silent && status !== 401 && !isAuthMeRequest) {
+      const message =
+        payload?.message ||
+        (status === 0 || error.code === 'ERR_NETWORK' ? '网络异常，请检查连接' : error.message) ||
+        '请求失败，请稍后再试'
+      toast.error(message)
     }
 
     return Promise.reject(error.response?.data ?? error)
