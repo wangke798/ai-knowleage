@@ -71,7 +71,8 @@ app:
   # CORS
   cors:
     # 多个用逗号分隔；前端默认 8000 端口，Vite 默认 5173
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8000,http://localhost:5173}
+    # 支持通配符模式（OriginPatterns）：如 https://*.wangke798.top
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8000,http://localhost:5173,https://wangke798.top,https://*.wangke798.top}
   # Cookie（生产 HTTPS 环境务必置为 true）
   cookie:
     secure: ${COOKIE_SECURE:false}

@@ -12,6 +12,9 @@ export default defineConfig({
   },
   server: {
     port: 8000,
+    host: '0.0.0.0',
+    // 允许通过 Cloudflare Tunnel 的域名访问
+    allowedHosts: ['wangke798.top', 'www.wangke798.top', '.wangke798.top'],
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

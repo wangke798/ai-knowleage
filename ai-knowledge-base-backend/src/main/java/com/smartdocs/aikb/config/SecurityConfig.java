@@ -81,7 +81,9 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(allowedOrigins);
+        // 使用 OriginPatterns 支持通配符（如 https://*.wangke798.top），
+        // 且能与 allowCredentials=true 共存（setAllowedOrigins 不允许 *）。
+        config.setAllowedOriginPatterns(allowedOrigins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setExposedHeaders(List.of("X-Trace-Id"));

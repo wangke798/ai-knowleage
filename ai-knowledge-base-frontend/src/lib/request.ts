@@ -1,5 +1,6 @@
 import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '@/stores/authStore'
+import { uuid } from '@/lib/utils'
 
 const request = axios.create({
   baseURL: '/api',
@@ -13,7 +14,7 @@ request.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
-  config.headers['X-Trace-Id'] = crypto.randomUUID().replace(/-/g, '')
+  config.headers['X-Trace-Id'] = uuid().replace(/-/g, '')
   return config
 })
 

@@ -4,6 +4,7 @@ import { AxiosError } from 'axios'
 import { Button } from '@/components/ui/button'
 import { useUploadDocument } from '../hooks/useDocuments'
 import type { Result } from '@/types/api'
+import { uuid } from '@/lib/utils'
 
 interface DocumentUploaderProps {
   kbId: string
@@ -32,7 +33,7 @@ export function DocumentUploader({ kbId, disabled, accept = DEFAULT_ACCEPT }: Do
     (files: FileList | File[]) => {
       const list = Array.from(files)
       for (const file of list) {
-        const id = crypto.randomUUID()
+        const id = uuid()
         setItems((prev) => [...prev, { id, file, percent: 0, status: 'uploading' }])
 
         upload.mutate(

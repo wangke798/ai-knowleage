@@ -7,9 +7,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { documentApi } from '../api'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
+// 通过 Vite 把 pdfjs-dist 自带的 worker 作为本地资源加载，避免依赖海外 CDN
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
-// 配置 PDF.js worker（使用 CDN）
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
+// 配置 PDF.js worker（使用本地资源，国内更稳）
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker
 
 export function DocDetailPage() {
   const { kbId, docId } = useParams()
